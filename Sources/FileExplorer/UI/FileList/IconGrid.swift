@@ -159,22 +159,26 @@ final class GridCell: NSCollectionViewItem {
     override func viewDidLayout() {
         super.viewDidLayout()
         let b = view.bounds
-        let icon = style.icon
+        guard b.width > 0, b.height > 0 else { return }
         switch style.layout {
         case .vertical:
-            iconView.frame = NSRect(x: (b.width - icon) / 2, y: b.height - icon - 8, width: icon, height: icon)
-            let width = b.width - 8
+            let width = max(10, b.width - 8)
             let textHeight = min(nameField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 200)).height ?? 32, 34)
+            let maxIcon = max(16, b.height - textHeight - 12)
+            let icon = min(style.icon, maxIcon)
+            iconView.frame = NSRect(x: (b.width - icon) / 2, y: b.height - icon - 8, width: icon, height: icon)
             nameField.frame = NSRect(x: 4, y: max(2, iconView.frame.minY - 4 - textHeight), width: width, height: textHeight)
         case .horizontal:
+            let icon = min(style.icon, max(12, b.height - 4))
             iconView.frame = NSRect(x: 6, y: (b.height - icon) / 2, width: icon, height: icon)
             let lineHeight: CGFloat = 16
-            nameField.frame = NSRect(x: icon + 12, y: (b.height - lineHeight) / 2, width: b.width - icon - 18, height: lineHeight)
+            nameField.frame = NSRect(x: icon + 12, y: (b.height - lineHeight) / 2, width: max(10, b.width - icon - 18), height: lineHeight)
         case .tile:
+            let icon = min(style.icon, max(16, b.height - 8))
             iconView.frame = NSRect(x: 8, y: (b.height - icon) / 2, width: icon, height: icon)
-            let x = icon + 16, width = b.width - x - 6
+            let x = icon + 16, width = max(10, b.width - x - 6)
             nameField.frame = NSRect(x: x, y: b.height - 22, width: width, height: 16)
-            detailField.frame = NSRect(x: x, y: 4, width: width, height: b.height - 28)
+            detailField.frame = NSRect(x: x, y: 4, width: width, height: max(10, b.height - 28))
         }
     }
 }
@@ -209,11 +213,15 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
     private var sections: [ItemSection] = []
     private var indexForPath: [String: IndexPath] = [:]
     private var lastVersion = -1
-    private var style = GridStyle.make(for: .large)
-    private var grouped = false
+    private var style: GridStyle?
+    private var grouped: Bool?
     private var suppress = false
     private var editingPath: String?
     private var editCancelled = false
+
+    private var currentStyle: GridStyle {
+        style ?? GridStyle.make(for: model.viewMode)
+    }
 
     init(model: ExplorerModel) {
         self.model = model
@@ -226,6 +234,7 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
         host = FileListHostView(model: model, content: scroll)
         super.init()
         configure()
+        applyLayout(GridStyle.make(for: model.viewMode), grouped: model.groupBy != .none)
     }
 
     private func configure() {
@@ -250,7 +259,7 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
     func sync() {
         let newStyle = GridStyle.make(for: model.viewMode)
         let newGrouped = model.groupBy != .none
-        let layoutChanged = newStyle != style || newGrouped != grouped
+        let layoutChanged = style == nil || newStyle != style || newGrouped != grouped
         if layoutChanged { applyLayout(newStyle, grouped: newGrouped) }
 
         if model.listVersion != lastVersion || layoutChanged {
@@ -308,7 +317,7 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
             return NSCollectionViewItem()
         }
         let scale = collectionView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        cell.configure(item: item, style: style, scale: scale)
+        cell.configure(item: item, style: currentStyle, scale: scale)
         cell.onOpen = { [weak self] in self?.model.openItem(item) }
         cell.isSelected = model.selection.contains(item.path)
         return cell
