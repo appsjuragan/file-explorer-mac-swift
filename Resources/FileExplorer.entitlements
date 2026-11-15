@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened runtime with no exceptions: a native binary needs no JIT or
+         unsigned-memory entitlements (the Electron build required both). -->
+    <!-- Not sandboxed: a file manager must reach arbitrary paths. Access to protected
+         folders is gated by macOS privacy prompts (TCC) / Full Disk Access instead. -->
+</dict>
+</plist>

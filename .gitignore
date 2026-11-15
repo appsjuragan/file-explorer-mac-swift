@@ -1,11 +1,11 @@
-node_modules
-out
-dist
-release
-coverage
+.build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+dist/
+release/
 *.log
 .DS_Store
-.vite
 
 # Signing / notarization secrets — NEVER commit
 .env.signing
