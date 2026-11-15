@@ -33,9 +33,9 @@ struct GridStyle: Equatable {
         case .list: return GridStyle(layout: .horizontal, cell: NSSize(width: 232, height: 26), icon: 16, columnGap: 6, rowGap: 1, inset: 8)
         case .small: return GridStyle(layout: .horizontal, cell: NSSize(width: 200, height: 24), icon: 16, columnGap: 6, rowGap: 1, inset: 8)
         case .tiles: return GridStyle(layout: .tile, cell: NSSize(width: 264, height: 56), icon: 40, columnGap: 6, rowGap: 6, inset: 10)
-        case .medium: return GridStyle(layout: .vertical, cell: NSSize(width: 100, height: 110), icon: 48, columnGap: 4, rowGap: 4, inset: 12)
-        case .large: return GridStyle(layout: .vertical, cell: NSSize(width: 124, height: 134), icon: 72, columnGap: 4, rowGap: 4, inset: 12)
-        case .extraLarge, .details: return GridStyle(layout: .vertical, cell: NSSize(width: 152, height: 158), icon: 104, columnGap: 4, rowGap: 4, inset: 12)
+        case .medium: return GridStyle(layout: .vertical, cell: NSSize(width: 100, height: 116), icon: 48, columnGap: 4, rowGap: 4, inset: 12)
+        case .large: return GridStyle(layout: .vertical, cell: NSSize(width: 124, height: 142), icon: 72, columnGap: 4, rowGap: 4, inset: 12)
+        case .extraLarge, .details: return GridStyle(layout: .vertical, cell: NSSize(width: 152, height: 172), icon: 104, columnGap: 4, rowGap: 4, inset: 12)
         }
     }
 }
@@ -95,8 +95,10 @@ final class GridCell: NSCollectionViewItem {
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
         nameField.isSelectable = false
-        nameField.maximumNumberOfLines = 2
-        nameField.lineBreakMode = .byTruncatingMiddle
+        nameField.maximumNumberOfLines = 3
+        nameField.lineBreakMode = .byTruncatingTail
+        nameField.cell?.wraps = true
+        nameField.cell?.isScrollable = false
         nameField.font = .systemFont(ofSize: 12)
         detailField.font = .systemFont(ofSize: 11)
         detailField.textColor = .secondaryLabelColor
@@ -124,7 +126,10 @@ final class GridCell: NSCollectionViewItem {
         nameField.stringValue = item.name
         nameField.alphaValue = alpha
         nameField.alignment = style.layout == .vertical ? .center : .left
-        nameField.maximumNumberOfLines = style.layout == .vertical ? 2 : 1
+        nameField.maximumNumberOfLines = style.layout == .vertical ? 3 : 1
+        nameField.lineBreakMode = style.layout == .vertical ? .byTruncatingTail : .byTruncatingMiddle
+        nameField.cell?.wraps = style.layout == .vertical
+        nameField.cell?.isScrollable = style.layout != .vertical
         nameField.isEditable = false
         iconView.alphaValue = alpha
         view.toolTip = item.path
@@ -163,7 +168,7 @@ final class GridCell: NSCollectionViewItem {
         switch style.layout {
         case .vertical:
             let width = max(10, b.width - 8)
-            let textHeight = min(nameField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 200)).height ?? 32, 34)
+            let textHeight = min(nameField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 200)).height ?? 46, 50)
             let maxIcon = max(16, b.height - textHeight - 12)
             let icon = min(style.icon, maxIcon)
             iconView.frame = NSRect(x: (b.width - icon) / 2, y: b.height - icon - 8, width: icon, height: icon)
