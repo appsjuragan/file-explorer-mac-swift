@@ -22,6 +22,44 @@ enum IconThemeID: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Remembers the user's active session across launches.
+struct SavedSession: Codable, Equatable {
+    var tabs: [Tab] = []
+    var activeTabIndex: Int = 0
+    var currentPath: String = PathUtils.home
+    var viewMode: ViewMode = .details
+    var previewOpen: Bool = false
+    var navigationPaneOpen: Bool = true
+    var sortKey: SortKey = .name
+    var sortDirection: SortDirection = .ascending
+    var groupBy: GroupKey = .none
+    var treeExpandedPaths: [String] = []
+
+    init(
+        tabs: [Tab] = [],
+        activeTabIndex: Int = 0,
+        currentPath: String = PathUtils.home,
+        viewMode: ViewMode = .details,
+        previewOpen: Bool = false,
+        navigationPaneOpen: Bool = true,
+        sortKey: SortKey = .name,
+        sortDirection: SortDirection = .ascending,
+        groupBy: GroupKey = .none,
+        treeExpandedPaths: [String] = []
+    ) {
+        self.tabs = tabs
+        self.activeTabIndex = activeTabIndex
+        self.currentPath = currentPath
+        self.viewMode = viewMode
+        self.previewOpen = previewOpen
+        self.navigationPaneOpen = navigationPaneOpen
+        self.sortKey = sortKey
+        self.sortDirection = sortDirection
+        self.groupBy = groupBy
+        self.treeExpandedPaths = treeExpandedPaths
+    }
+}
+
 /// Everything remembered between launches. Decoding tolerates missing keys so older
 /// preference blobs keep working when fields are added.
 struct Prefs: Codable, Equatable {
@@ -43,6 +81,8 @@ struct Prefs: Codable, Equatable {
     var showHidden = false
     /// Most-recent first.
     var recents: [String] = []
+    var restoreSession: Bool = true
+    var lastSession: SavedSession? = nil
 
     static let previewRange: ClosedRange<Double> = 220...720
     static let sidebarRange: ClosedRange<Double> = 160...520
@@ -70,6 +110,8 @@ struct Prefs: Codable, Equatable {
         sortDirection = try c.decodeIfPresent(SortDirection.self, forKey: .sortDirection) ?? d.sortDirection
         showHidden = try c.decodeIfPresent(Bool.self, forKey: .showHidden) ?? d.showHidden
         recents = try c.decodeIfPresent([String].self, forKey: .recents) ?? d.recents
+        restoreSession = try c.decodeIfPresent(Bool.self, forKey: .restoreSession) ?? d.restoreSession
+        lastSession = try c.decodeIfPresent(SavedSession.self, forKey: .lastSession) ?? d.lastSession
     }
 }
 

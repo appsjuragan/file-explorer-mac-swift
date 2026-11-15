@@ -256,7 +256,7 @@ struct CloudInfo: Hashable {
 
 // MARK: - Tabs & updates
 
-struct Tab: Identifiable, Equatable {
+struct Tab: Identifiable, Equatable, Codable {
     let id: UUID
     var history: [String]
     var index: Int
@@ -267,7 +267,16 @@ struct Tab: Identifiable, Equatable {
         index = 0
     }
 
-    var path: String { history[index] }
+    init(id: UUID = UUID(), history: [String], index: Int) {
+        self.id = id
+        self.history = history
+        self.index = index
+    }
+
+    var path: String {
+        guard index >= 0 && index < history.count else { return history.last ?? PathUtils.home }
+        return history[index]
+    }
 }
 
 enum UpdateState: Equatable {

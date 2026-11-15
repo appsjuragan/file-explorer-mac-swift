@@ -125,6 +125,16 @@ struct CommandBar: View {
                     Label("Open Custom Icons Folder", systemImage: "arrow.up.forward.square")
                 }
             }
+            Divider()
+            Button {
+                model.toggleRestoreSession()
+            } label: {
+                if model.restoreSession {
+                    Label("Restore previous session", systemImage: "checkmark")
+                } else {
+                    Text("Restore previous session")
+                }
+            }
         } label: {
             Label("View", systemImage: model.viewMode.symbol).font(.system(size: 12))
         }

@@ -81,6 +81,10 @@ struct ExplorerCommands: Commands {
                     model?.openCustomIconsFolder()
                 }
             }
+            Divider()
+            Button(model?.restoreSession == true ? "✓ Restore Previous Session" : "    Restore Previous Session") {
+                model?.toggleRestoreSession()
+            }.disabled(model == nil)
         }
 
         CommandGroup(after: .appInfo) {

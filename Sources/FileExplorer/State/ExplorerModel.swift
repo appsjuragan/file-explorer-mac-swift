@@ -89,9 +89,27 @@ final class ExplorerModel: ObservableObject, Identifiable {
         self.fs = fs
         self.cloud = cloud
         self.homeDir = fs.homeDirectory
-        let first = Tab(path: PathUtils.home)
-        tabs = [first]
-        activeTabID = first.id
+
+        var initialTabs: [Tab] = [Tab(path: PathUtils.home)]
+        var initialActiveID: UUID = initialTabs[0].id
+        var initialPath = PathUtils.home
+        var initialTree: Set<String> = []
+
+        if prefs.value.restoreSession, let session = prefs.value.lastSession, !session.tabs.isEmpty {
+            let validTabs = session.tabs.filter { $0.path == PathUtils.home || fs.isDirectory($0.path) }
+            if !validTabs.isEmpty {
+                initialTabs = validTabs
+                let targetIdx = min(max(0, session.activeTabIndex), validTabs.count - 1)
+                initialActiveID = validTabs[targetIdx].id
+                initialPath = validTabs[targetIdx].path
+                initialTree = Set(session.treeExpandedPaths.filter { fs.isDirectory($0) })
+            }
+        }
+
+        tabs = initialTabs
+        activeTabID = initialActiveID
+        currentPath = initialPath
+        treeExpandedPaths = initialTree
 
         // Windows share preferences: forward changes, and re-sort when a list setting moves.
         prefs.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
@@ -148,6 +166,60 @@ final class ExplorerModel: ObservableObject, Identifiable {
         IconThemeManager.shared.openCustomFolder()
     }
 
+    // MARK: - Session Persistence
+
+    var restoreSession: Bool {
+        get { prefs.value.restoreSession }
+        set {
+            prefs.value.restoreSession = newValue
+            if !newValue { prefs.value.lastSession = nil }
+            objectWillChange.send()
+        }
+    }
+
+    func toggleRestoreSession() {
+        restoreSession.toggle()
+        if restoreSession {
+            saveSession()
+        } else {
+            prefs.value.lastSession = nil
+            prefs.flush()
+        }
+    }
+
+    func saveSession() {
+        guard restoreSession else {
+            prefs.value.lastSession = nil
+            return
+        }
+        let activeIdx = tabs.firstIndex(where: { $0.id == activeTabID }) ?? 0
+        let session = SavedSession(
+            tabs: tabs,
+            activeTabIndex: activeIdx,
+            currentPath: currentPath,
+            viewMode: viewMode,
+            previewOpen: previewOpen,
+            navigationPaneOpen: navigationPaneOpen,
+            sortKey: sortKey,
+            sortDirection: sortDirection,
+            groupBy: groupBy,
+            treeExpandedPaths: Array(treeExpandedPaths)
+        )
+        prefs.value.lastSession = session
+        prefs.flush()
+    }
+
+    private var sessionSaveTask: Task<Void, Never>?
+    func scheduleSessionSave() {
+        guard restoreSession else { return }
+        sessionSaveTask?.cancel()
+        sessionSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.saveSession()
+        }
+    }
+
     private var settings: ItemOrdering.Settings {
         ItemOrdering.Settings(showHidden: showHidden, sortKey: sortKey, sortDirection: sortDirection, groupBy: groupBy)
     }
@@ -173,12 +245,19 @@ final class ExplorerModel: ObservableObject, Identifiable {
         ws.publisher(for: NSWorkspace.didMountNotification).merge(with: ws.publisher(for: NSWorkspace.didUnmountNotification))
             .sink { [weak self] _ in self?.loadLocations() }.store(in: &bag)
 
-        var startPath = PathUtils.home
+        var startPath = currentPath
         if let env = ProcessInfo.processInfo.environment["FE_START_DIR"], fs.isDirectory(env) { startPath = env }
         let pending = WindowRegistry.shared.takePending()
         if let first = pending.first { startPath = first }
         navigate(to: startPath, replace: true)
         pending.dropFirst().forEach { newTab(path: $0) }
+
+        for path in treeExpandedPaths {
+            loadTreeChildren(for: path)
+        }
+
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in self?.saveSession() }.store(in: &bag)
     }
 
     private func loadLocations() {
@@ -301,6 +380,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
         cancelSearch(reload: false)
         load(path)
         syncTreeToOpenedFolder(path)
+        scheduleSessionSave()
     }
 
     var canGoBack: Bool { activeTab.index > 0 }
@@ -347,10 +427,14 @@ final class ExplorerModel: ObservableObject, Identifiable {
         tabs.append(tab)
         activeTabID = tab.id
         show(tab.path)
+        scheduleSessionSave()
     }
 
     /// Opens in the background, like a browser's middle-click.
-    func openInNewTab(_ path: String) { tabs.append(Tab(path: path)) }
+    func openInNewTab(_ path: String) {
+        tabs.append(Tab(path: path))
+        scheduleSessionSave()
+    }
 
     func duplicateActiveTab() { newTab(path: currentPath) }
 
@@ -359,22 +443,26 @@ final class ExplorerModel: ObservableObject, Identifiable {
         if tabs.count == 1 { window?.performClose(nil); return }
         let wasActive = id == activeTabID
         tabs.remove(at: idx)
-        guard wasActive else { return }
-        let next = tabs[min(idx, tabs.count - 1)]
-        activeTabID = next.id
-        show(next.path)
+        if wasActive {
+            let next = tabs[min(idx, tabs.count - 1)]
+            activeTabID = next.id
+            show(next.path)
+        }
+        scheduleSessionSave()
     }
 
     func closeOtherTabs(keeping id: UUID) {
         guard let keep = tabs.first(where: { $0.id == id }) else { return }
         tabs = [keep]
         if activeTabID != id { activeTabID = id; show(keep.path) }
+        scheduleSessionSave()
     }
 
     func setActiveTab(_ id: UUID) {
         guard id != activeTabID, let tab = tabs.first(where: { $0.id == id }) else { return }
         activeTabID = id
         show(tab.path)
+        scheduleSessionSave()
     }
 
     // MARK: - Selection
@@ -711,13 +799,32 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     // MARK: - View settings
 
-    func setViewMode(_ mode: ViewMode) { prefs.value.viewMode = mode }
-    func setGroupBy(_ key: GroupKey) { prefs.value.groupBy = key }
-    func toggleShowHidden() { prefs.value.showHidden.toggle() }
-    func togglePreview() { prefs.value.previewOpen.toggle() }
-    func toggleNavigationPane() { prefs.value.navigationPaneOpen.toggle() }
+    func setViewMode(_ mode: ViewMode) {
+        prefs.value.viewMode = mode
+        scheduleSessionSave()
+    }
 
-    func setSortDirection(_ direction: SortDirection) { prefs.value.sortDirection = direction }
+    func setGroupBy(_ key: GroupKey) {
+        prefs.value.groupBy = key
+        scheduleSessionSave()
+    }
+
+    func toggleShowHidden() { prefs.value.showHidden.toggle() }
+
+    func togglePreview() {
+        prefs.value.previewOpen.toggle()
+        scheduleSessionSave()
+    }
+
+    func toggleNavigationPane() {
+        prefs.value.navigationPaneOpen.toggle()
+        scheduleSessionSave()
+    }
+
+    func setSortDirection(_ direction: SortDirection) {
+        prefs.value.sortDirection = direction
+        scheduleSessionSave()
+    }
 
     /// Same key flips direction; a new key starts with the useful default
     /// (newest / largest first for date and size).
@@ -727,6 +834,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
             prefs.value.sortKey = key
             prefs.value.sortDirection = (key == .modified || key == .size) ? .descending : .ascending
         }
+        scheduleSessionSave()
     }
 
     func setColumnWidth(_ column: String, _ width: Double) {
@@ -817,11 +925,13 @@ final class ExplorerModel: ObservableObject, Identifiable {
         } else {
             expandTreeNode(path)
         }
+        scheduleSessionSave()
     }
 
     func expandTreeNode(_ path: String) {
         treeExpandedPaths.insert(path)
         loadTreeChildren(for: path)
+        scheduleSessionSave()
     }
 
     func loadTreeChildren(for path: String, forceReload: Bool = false) {
@@ -949,6 +1059,10 @@ final class WindowRegistry {
     }
 
     func markActive(_ model: ExplorerModel) { active = model }
+
+    func saveAllSessions() {
+        boxes.compactMap(\.model).forEach { $0.saveSession() }
+    }
 
     func takePending() -> [String] {
         defer { pending = [] }

@@ -48,6 +48,11 @@ struct RootView: View {
                 model.refreshClipboardStatus()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            if (note.object as? NSWindow) === model.window {
+                model.saveSession()
+            }
+        }
     }
 
     private var overlays: some View {
