@@ -127,6 +127,29 @@ struct FileSystemService: Sendable {
         return PathUtils.join(parent, "\(stem) (\(UUID().uuidString.prefix(8)))" + (ext.isEmpty ? "" : ".\(ext)"))
     }
 
+    /// Windows Explorer style copy naming in the same folder: "Name - Copy.ext", "Name - Copy (2).ext", etc.
+    func uniqueCopyPath(in parent: String, name: String) -> String {
+        let ns = name as NSString
+        let ext = (name.hasPrefix(".") && !name.dropFirst().contains(".")) ? "" : ns.pathExtension
+        let stem = ext.isEmpty ? name : ns.deletingPathExtension
+
+        var base = stem
+        if let regex = try? NSRegularExpression(pattern: #"^(.*?)(?: - Copy(?: \((\d+)\))?)?$"#),
+           let match = regex.firstMatch(in: stem, range: NSRange(location: 0, length: stem.utf16.count)),
+           let baseRange = Range(match.range(at: 1), in: stem), !baseRange.isEmpty {
+            base = String(stem[baseRange])
+        }
+
+        let first = PathUtils.join(parent, ext.isEmpty ? "\(base) - Copy" : "\(base) - Copy.\(ext)")
+        if !exists(first) { return first }
+
+        for i in 2..<1000 {
+            let candidate = PathUtils.join(parent, ext.isEmpty ? "\(base) - Copy (\(i))" : "\(base) - Copy (\(i)).\(ext)")
+            if !exists(candidate) { return candidate }
+        }
+        return PathUtils.join(parent, "\(base) - Copy (\(UUID().uuidString.prefix(8)))" + (ext.isEmpty ? "" : ".\(ext)"))
+    }
+
     func createFolder(in parent: String, name: String) throws -> FileItem {
         do {
             let target = uniquePath(in: parent, name: try Validation.fileName(name.isEmpty ? "New folder" : name))
@@ -243,7 +266,8 @@ struct FileSystemService: Sendable {
             if exists(target) {
                 switch policy {
                 case .skip: done += 1; continue
-                case .keepBoth: target = uniquePath(in: dest, name: name)
+                case .keepBoth:
+                    target = (sameFolder && op == .copy) ? uniqueCopyPath(in: dest, name: name) : uniquePath(in: dest, name: name)
                 case .replace:
                     if PathUtils.standardized(target) == src { done += 1; continue }
                     // Recoverable: the replaced item goes to the Trash, not into the void.

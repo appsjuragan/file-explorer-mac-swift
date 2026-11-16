@@ -46,12 +46,23 @@ struct GridStyle: Equatable {
 final class FileCollectionView: NSCollectionView, FileListControl {
     weak var model: ExplorerModel?
     var contextMenuProvider: ((NSEvent) -> NSMenu?)?
+    var onDraggingExited: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? { contextMenuProvider?(event) }
 
     override func keyDown(with event: NSEvent) {
         if let model, FileListKeys.handle(event, model: model, nativeTypeSelect: false) { return }
         super.keyDown(with: event)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        onDraggingExited?()
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        super.draggingEnded(sender)
+        onDraggingExited?()
     }
 }
 
@@ -109,6 +120,7 @@ final class GridCell: NSCollectionViewItem {
     }
 
     override var isSelected: Bool { didSet { updateAppearance() } }
+    var isDropTarget: Bool = false { didSet { if oldValue != isDropTarget { updateAppearance() } } }
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -116,6 +128,7 @@ final class GridCell: NSCollectionViewItem {
         thumbnailRequest = nil
         iconView.image = nil
         onOpen = nil
+        isDropTarget = false
     }
 
     func configure(item: FileItem, style: GridStyle, scale: CGFloat) {
@@ -157,7 +170,19 @@ final class GridCell: NSCollectionViewItem {
 
     private func updateAppearance() {
         view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            view.layer?.backgroundColor = isSelected ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor : NSColor.clear.cgColor
+            if isDropTarget {
+                view.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.35).cgColor
+                view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+                view.layer?.borderWidth = 2
+            } else if isSelected {
+                view.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+                view.layer?.borderColor = NSColor.clear.cgColor
+                view.layer?.borderWidth = 0
+            } else {
+                view.layer?.backgroundColor = NSColor.clear.cgColor
+                view.layer?.borderColor = NSColor.clear.cgColor
+                view.layer?.borderWidth = 0
+            }
         }
     }
 
@@ -223,6 +248,7 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
     private var suppress = false
     private var editingPath: String?
     private var editCancelled = false
+    private var dropTargetIndexPath: IndexPath?
 
     private var currentStyle: GridStyle {
         style ?? GridStyle.make(for: model.viewMode)
@@ -257,11 +283,28 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
         collection.setDraggingSourceOperationMask(.every, forLocal: true)
         collection.setDraggingSourceOperationMask(.every, forLocal: false)
         collection.contextMenuProvider = { [weak self] event in self?.contextMenu(for: event) }
+        collection.onDraggingExited = { [weak self] in self?.clearDropHighlight() }
+    }
+
+    private func setDropTarget(at indexPath: IndexPath?) {
+        guard dropTargetIndexPath != indexPath else { return }
+        if let old = dropTargetIndexPath, let oldCell = collection.item(at: old) as? GridCell {
+            oldCell.isDropTarget = false
+        }
+        dropTargetIndexPath = indexPath
+        if let new = indexPath, let newCell = collection.item(at: new) as? GridCell {
+            newCell.isDropTarget = true
+        }
+    }
+
+    private func clearDropHighlight() {
+        setDropTarget(at: nil)
     }
 
     // MARK: Sync
 
     func sync() {
+        clearDropHighlight()
         let newStyle = GridStyle.make(for: model.viewMode)
         let newGrouped = model.groupBy != .none
         let layoutChanged = style == nil || newStyle != style || newGrouped != grouped
@@ -404,31 +447,72 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
         URL(fileURLWithPath: sections[indexPath.section].items[indexPath.item].path) as NSURL
     }
 
-    private func destination(at indexPath: IndexPath, operation: NSCollectionView.DropOperation) -> String {
-        if operation == .on, indexPath.section < sections.count, indexPath.item < sections[indexPath.section].items.count {
-            let item = sections[indexPath.section].items[indexPath.item]
-            if item.opensAsFolder { return item.path }
-        }
-        return model.currentPath
-    }
-
     func collectionView(_ collectionView: NSCollectionView, validateDrop draggingInfo: NSDraggingInfo,
                         proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                         dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
         let sources = DropHelper.paths(from: draggingInfo)
-        guard !sources.isEmpty else { return [] }
-        let target = destination(at: proposedDropIndexPath.pointee as IndexPath, operation: proposedDropOperation.pointee)
-        // Hovering a non-folder means "drop into this folder", shown as an insertion.
-        if target == model.currentPath { proposedDropOperation.pointee = .before }
-        let kind = model.dropOperation(sources: sources, destination: target, optionDown: NSEvent.modifierFlags.contains(.option))
-        return model.canAccept(sources: sources, destination: target, op: kind) ? DropHelper.operation(kind) : []
+        guard !sources.isEmpty else {
+            clearDropHighlight()
+            return []
+        }
+        let isCopy = DropHelper.isCopyModifier(info: draggingInfo)
+
+        let point = collection.convert(draggingInfo.draggingLocation, from: nil)
+        let hitIndexPath = collection.indexPathForItem(at: point)
+
+        // Check if mouse is directly over a folder cell
+        if let hit = hitIndexPath, hit.section < sections.count, hit.item < sections[hit.section].items.count {
+            let item = sections[hit.section].items[hit.item]
+            if item.opensAsFolder {
+                let kind = model.dropOperation(sources: sources, destination: item.path, copyModifier: isCopy)
+                if model.canAccept(sources: sources, destination: item.path, op: kind) {
+                    proposedDropIndexPath.pointee = hit as NSIndexPath
+                    proposedDropOperation.pointee = .on
+                    setDropTarget(at: hit)
+                    return DropHelper.operation(kind)
+                }
+            }
+        }
+
+        // Not hovering over a valid folder item: clear highlight
+        clearDropHighlight()
+
+        // Fallback: dropping into current directory (e.g. hold Ctrl to copy in same folder, or dragging from external/other folder)
+        let kind = model.dropOperation(sources: sources, destination: model.currentPath, copyModifier: isCopy)
+        if model.canAccept(sources: sources, destination: model.currentPath, op: kind) {
+            proposedDropOperation.pointee = .before
+            return DropHelper.operation(kind)
+        }
+
+        return []
     }
 
     func collectionView(_ collectionView: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo,
                         indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
+        clearDropHighlight()
         let sources = DropHelper.paths(from: draggingInfo)
-        let target = destination(at: indexPath, operation: dropOperation)
-        let kind = model.dropOperation(sources: sources, destination: target, optionDown: NSEvent.modifierFlags.contains(.option))
+        guard !sources.isEmpty else { return false }
+        let isCopy = DropHelper.isCopyModifier(info: draggingInfo)
+
+        let point = collection.convert(draggingInfo.draggingLocation, from: nil)
+        let hitIndexPath = collection.indexPathForItem(at: point) ?? indexPath
+
+        // Dropped on a folder cell
+        if (dropOperation == .on || hitIndexPath == indexPath),
+           hitIndexPath.section < sections.count, hitIndexPath.item < sections[hitIndexPath.section].items.count {
+            let item = sections[hitIndexPath.section].items[hitIndexPath.item]
+            if item.opensAsFolder {
+                let kind = model.dropOperation(sources: sources, destination: item.path, copyModifier: isCopy)
+                if model.canAccept(sources: sources, destination: item.path, op: kind) {
+                    model.performTransfer(sources, to: item.path, op: kind)
+                    return true
+                }
+            }
+        }
+
+        // Dropped into current directory
+        let target = model.currentPath
+        let kind = model.dropOperation(sources: sources, destination: target, copyModifier: isCopy)
         guard model.canAccept(sources: sources, destination: target, op: kind) else { return false }
         model.performTransfer(sources, to: target, op: kind)
         return true

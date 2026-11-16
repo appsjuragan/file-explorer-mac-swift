@@ -577,11 +577,15 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     // MARK: - Transfers
 
-    /// What a drop should do: ⌥ copies; otherwise a move on the same volume and a copy elsewhere.
-    func dropOperation(sources: [String], destination: String, optionDown: Bool) -> OpKind {
-        if optionDown { return .copy }
+    /// What a drop should do: ⌃ (Ctrl) or ⌥ (Option) copies; otherwise a move on the same volume and a copy elsewhere.
+    func dropOperation(sources: [String], destination: String, copyModifier: Bool) -> OpKind {
+        if copyModifier { return .copy }
         guard let first = sources.first else { return .copy }
         return fs.sameVolume(first, destination) ? .move : .copy
+    }
+
+    func dropOperation(sources: [String], destination: String, optionDown: Bool) -> OpKind {
+        dropOperation(sources: sources, destination: destination, copyModifier: optionDown)
     }
 
     /// False for drops that can't do anything (onto itself, move into the same folder).

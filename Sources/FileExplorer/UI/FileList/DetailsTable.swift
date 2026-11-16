@@ -371,33 +371,54 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
         return URL(fileURLWithPath: item.path) as NSURL
     }
 
-    /// Dropping on a folder row targets that folder; anywhere else targets the current folder.
-    private func dropDestination(row: Int, operation: NSTableView.DropOperation) -> (path: String, onRow: Bool) {
-        if operation == .on, row >= 0, row < rows.count, case .item(let item) = rows[row], item.opensAsFolder {
-            return (item.path, true)
-        }
-        return (model.currentPath, false)
-    }
-
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
         let sources = DropHelper.paths(from: info)
         guard !sources.isEmpty else { return [] }
-        let target = dropDestination(row: row, operation: operation)
-        tableView.setDropRow(target.onRow ? row : -1, dropOperation: .on)
-        let kind = model.dropOperation(sources: sources, destination: target.path,
-                                       optionDown: NSEvent.modifierFlags.contains(.option))
-        return model.canAccept(sources: sources, destination: target.path, op: kind) ? DropHelper.operation(kind) : []
+        let isCopy = DropHelper.isCopyModifier(info: info)
+
+        let point = tableView.convert(info.draggingLocation, from: nil)
+        let hitRow = tableView.row(at: point)
+
+        // If hovering over a folder row, check if we can drop into it
+        if hitRow >= 0, hitRow < rows.count, case .item(let item) = rows[hitRow], item.opensAsFolder {
+            let kind = model.dropOperation(sources: sources, destination: item.path, copyModifier: isCopy)
+            if model.canAccept(sources: sources, destination: item.path, op: kind) {
+                tableView.setDropRow(hitRow, dropOperation: .on)
+                return DropHelper.operation(kind)
+            }
+        }
+
+        // Otherwise target the current directory
+        let kind = model.dropOperation(sources: sources, destination: model.currentPath, copyModifier: isCopy)
+        if model.canAccept(sources: sources, destination: model.currentPath, op: kind) {
+            tableView.setDropRow(-1, dropOperation: .on)
+            return DropHelper.operation(kind)
+        }
+        return []
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
                    dropOperation operation: NSTableView.DropOperation) -> Bool {
         let sources = DropHelper.paths(from: info)
-        let target = dropDestination(row: row, operation: operation)
-        let kind = model.dropOperation(sources: sources, destination: target.path,
-                                       optionDown: NSEvent.modifierFlags.contains(.option))
-        guard model.canAccept(sources: sources, destination: target.path, op: kind) else { return false }
-        model.performTransfer(sources, to: target.path, op: kind)
+        guard !sources.isEmpty else { return false }
+        let isCopy = DropHelper.isCopyModifier(info: info)
+
+        let point = tableView.convert(info.draggingLocation, from: nil)
+        let hitRow = (row >= 0) ? row : tableView.row(at: point)
+
+        if hitRow >= 0, hitRow < rows.count, case .item(let item) = rows[hitRow], item.opensAsFolder {
+            let kind = model.dropOperation(sources: sources, destination: item.path, copyModifier: isCopy)
+            if model.canAccept(sources: sources, destination: item.path, op: kind) {
+                model.performTransfer(sources, to: item.path, op: kind)
+                return true
+            }
+        }
+
+        let target = model.currentPath
+        let kind = model.dropOperation(sources: sources, destination: target, copyModifier: isCopy)
+        guard model.canAccept(sources: sources, destination: target, op: kind) else { return false }
+        model.performTransfer(sources, to: target, op: kind)
         return true
     }
 }

@@ -105,12 +105,23 @@ enum FileListKeys {
 
 enum DropHelper {
     static func paths(from info: NSDraggingInfo) -> [String] {
-        let urls = info.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        return urls?.map(\.path) ?? []
+        if let urls = info.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            return urls.map(\.path)
+        }
+        if let propertyList = info.draggingPasteboard.propertyList(forType: .init("NSFilenamesPboardType")) as? [String] {
+            return propertyList
+        }
+        return []
     }
 
     static func operation(_ kind: OpKind) -> NSDragOperation { kind == .copy ? .copy : .move }
+
+    /// In Windows Explorer, holding Ctrl forces copy (⌥ also supported for Mac users).
+    static func isCopyModifier(info: NSDraggingInfo? = nil) -> Bool {
+        let flags = (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.control) || flags.contains(.option)
+    }
 }
 
 // MARK: - Context menu

@@ -191,7 +191,8 @@ private struct NavRow: View {
     private func drop(_ urls: [URL]) -> Bool {
         let sources = urls.filter(\.isFileURL).map(\.path)
         guard !sources.isEmpty else { return false }
-        let op = model.dropOperation(sources: sources, destination: path, optionDown: NSEvent.modifierFlags.contains(.option))
+        let isCopy = DropHelper.isCopyModifier()
+        let op = model.dropOperation(sources: sources, destination: path, copyModifier: isCopy)
         guard model.canAccept(sources: sources, destination: path, op: op) else { return false }
         model.performTransfer(sources, to: path, op: op)
         return true
