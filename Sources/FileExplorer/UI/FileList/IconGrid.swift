@@ -68,9 +68,11 @@ final class FileCollectionView: NSCollectionView, FileListControl {
 
 // MARK: - Cell
 
-private final class GridCellContainer: NSView {
+private final class GridCellContainer: NSView, NSViewToolTipOwner {
     var onDoubleClick: (() -> Void)?
     var onAppearanceChange: (() -> Void)?
+    var tooltipProvider: (() -> String)?
+    private var tooltipTag: NSView.ToolTipTag?
 
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)                       // selection is handled by the collection view
@@ -81,12 +83,32 @@ private final class GridCellContainer: NSView {
         super.viewDidChangeEffectiveAppearance()
         onAppearanceChange?()
     }
+
+    override func layout() {
+        super.layout()
+        updateTooltipTag()
+    }
+
+    private func updateTooltipTag() {
+        if let tag = tooltipTag {
+            removeToolTip(tag)
+            tooltipTag = nil
+        }
+        if bounds.width > 0 && bounds.height > 0 {
+            tooltipTag = addToolTip(bounds, owner: self, userData: nil)
+        }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        tooltipProvider?() ?? toolTip ?? ""
+    }
 }
 
 final class GridCell: NSCollectionViewItem {
     static let id = NSUserInterfaceItemIdentifier("fe.grid.cell")
 
     private(set) var path = ""
+    private(set) var currentItem: FileItem?
     var onOpen: (() -> Void)?
 
     private var style = GridStyle.make(for: .large)
@@ -129,12 +151,19 @@ final class GridCell: NSCollectionViewItem {
         iconView.image = nil
         onOpen = nil
         isDropTarget = false
+        currentItem = nil
+    }
+
+    func updateTooltip() {
+        guard let item = currentItem else { return }
+        view.toolTip = FileTooltipHelper.tooltip(for: item)
     }
 
     func configure(item: FileItem, style: GridStyle, scale: CGFloat) {
         _ = view                                            // make sure loadView ran
         self.style = style
         path = item.path
+        currentItem = item
         let alpha: CGFloat = item.isHidden ? 0.55 : 1
         nameField.stringValue = item.name
         nameField.alphaValue = alpha
@@ -145,7 +174,11 @@ final class GridCell: NSCollectionViewItem {
         nameField.cell?.isScrollable = style.layout != .vertical
         nameField.isEditable = false
         iconView.alphaValue = alpha
-        view.toolTip = item.path
+        view.toolTip = FileTooltipHelper.tooltip(for: item)
+        (view as? GridCellContainer)?.tooltipProvider = { [weak self] in
+            guard let item = self?.currentItem else { return "" }
+            return FileTooltipHelper.tooltip(for: item)
+        }
 
         switch style.layout {
         case .tile:
@@ -284,6 +317,19 @@ final class IconGridController: NSObject, NSCollectionViewDataSource, NSCollecti
         collection.setDraggingSourceOperationMask(.every, forLocal: false)
         collection.contextMenuProvider = { [weak self] event in self?.contextMenu(for: event) }
         collection.onDraggingExited = { [weak self] in self?.clearDropHighlight() }
+        NotificationCenter.default.addObserver(self, selector: #selector(folderStatsUpdated(_:)),
+                                               name: FileTooltipHelper.folderStatsUpdated, object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func folderStatsUpdated(_ notification: Notification) {
+        guard let path = notification.object as? String, let ip = indexForPath[path] else { return }
+        if let cell = collection.item(at: ip) as? GridCell {
+            cell.updateTooltip()
+        }
     }
 
     private func setDropTarget(at indexPath: IndexPath?) {

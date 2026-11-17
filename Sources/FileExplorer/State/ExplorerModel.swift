@@ -309,7 +309,9 @@ final class ExplorerModel: ObservableObject, Identifiable {
             }.value
             guard let self, !Task.isCancelled else { return }
             switch result {
-            case .success(let loaded): self.apply(loaded)
+            case .success(let loaded):
+                self.apply(loaded)
+                FileIndexWorker.shared.indexLoadedItems(loaded.items, in: path)
             case .failure(let error): self.fail(error)
             }
         }
@@ -690,6 +692,8 @@ final class ExplorerModel: ObservableObject, Identifiable {
             case .success(let item):
                 self?.record(.rename(from: target, to: item.path))
                 self?.selection = [item.path]
+                FileIndexWorker.shared.removeEntry(at: target)
+                if let dir = self?.currentPath { FileIndexWorker.shared.invalidateFolderStats(for: dir) }
             }
             self?.refresh()
         }
@@ -705,7 +709,10 @@ final class ExplorerModel: ObservableObject, Identifiable {
             guard let result = await self?.background({ try make(fs, dir, name) }) else { return }
             switch result {
             case .failure(let error): self?.flash(error.message)
-            case .success(let item): self?.pendingRenamePath = item.path; self?.refresh()
+            case .success(let item):
+                self?.pendingRenamePath = item.path
+                FileIndexWorker.shared.invalidateFolderStats(for: dir)
+                self?.refresh()
             }
         }
     }
@@ -719,6 +726,8 @@ final class ExplorerModel: ObservableObject, Identifiable {
             if case .success(let r) = result {
                 if !r.moves.isEmpty { self.record(.trash(r.moves)) }
                 if !r.failed.isEmpty { self.flash("Couldn't delete: \(r.failed.joined(separator: ", "))") }
+                paths.forEach { FileIndexWorker.shared.removeEntry(at: $0) }
+                FileIndexWorker.shared.invalidateFolderStats(for: self.currentPath)
             }
             self.selection = []
             self.refresh()
@@ -783,11 +792,10 @@ final class ExplorerModel: ObservableObject, Identifiable {
         isSearchResults = true
         isLoading = true
         selection = []
-        let fs = fs, root = currentPath, settings = settings
+        let root = currentPath, settings = settings
         searchTask = Task { [weak self] in
-            let loaded = await Task.detached(priority: .userInitiated) {
-                Loaded.make(fs.search(root: root, query: query), settings)
-            }.value
+            let results = await FileIndexWorker.shared.search(root: root, query: query)
+            let loaded = Loaded.make(results, settings)
             guard let self, !Task.isCancelled else { return }
             self.apply(loaded)
         }
