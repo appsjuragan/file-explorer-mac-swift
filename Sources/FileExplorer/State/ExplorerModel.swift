@@ -65,6 +65,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
     @Published private(set) var osClipboardHasFiles = false
     @Published private(set) var renamingPath: String?
     private var pendingRenamePath: String?
+    private var pendingSelectPath: String?
 
     // MARK: Search
     @Published private(set) var searchQuery = ""
@@ -343,6 +344,11 @@ final class ExplorerModel: ObservableObject, Identifiable {
                 selection = [pending]
                 renamingPath = pending
             }
+        } else if let toSelect = pendingSelectPath {
+            pendingSelectPath = nil
+            if present.contains(toSelect) {
+                selection = [toSelect]
+            }
         }
         selection = selection.intersection(present)
     }
@@ -363,7 +369,8 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     // MARK: - Navigation
 
-    func navigate(to path: String, replace: Bool = false) {
+    func navigate(to path: String, replace: Bool = false, select: String? = nil) {
+        pendingSelectPath = select
         updateActiveTab { tab in
             if replace { tab.history[tab.index] = path }
             else {
@@ -371,18 +378,27 @@ final class ExplorerModel: ObservableObject, Identifiable {
                 tab.index = tab.history.count - 1
             }
         }
-        show(path)
+        show(path, select: select)
     }
 
-    private func show(_ path: String) {
+    private func show(_ path: String, select: String? = nil) {
         currentPath = path
-        selection = []
+        selection = select.map { [$0] } ?? []
+        pendingSelectPath = select
         renamingPath = nil
         isAddressEditing = false
         cancelSearch(reload: false)
         load(path)
         syncTreeToOpenedFolder(path)
         scheduleSessionSave()
+    }
+
+    /// From search results: opens the original folder location and selects the target file.
+    func openOriginalLocation(for path: String) {
+        let parent = PathUtils.parent(path)
+        guard fs.isDirectory(parent) else { return }
+        cancelSearch(reload: false)
+        navigate(to: parent, select: path)
     }
 
     var canGoBack: Bool { activeTab.index > 0 }

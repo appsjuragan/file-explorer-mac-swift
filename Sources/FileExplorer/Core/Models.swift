@@ -102,7 +102,7 @@ enum ViewMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum SortKey: String, Codable, CaseIterable, Identifiable {
-    case name, modified, type, size
+    case name, modified, type, size, location
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -110,6 +110,7 @@ enum SortKey: String, Codable, CaseIterable, Identifiable {
         case .modified: return "Date modified"
         case .type: return "Type"
         case .size: return "Size"
+        case .location: return "Folder path"
         }
     }
 }

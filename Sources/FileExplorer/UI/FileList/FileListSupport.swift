@@ -202,6 +202,9 @@ struct ContextMenuBuilder {
         if isFolder {
             menu.addItem(ClosureMenuItem("Open in new tab", symbol: "plus.rectangle.on.rectangle") { model.openInNewTab(path) })
         }
+        if model.isSearchResults && single {
+            menu.addItem(ClosureMenuItem("Go to path", symbol: "folder") { model.openOriginalLocation(for: path) })
+        }
         menu.addItem(ClosureMenuItem("Open with…", symbol: "app.badge", enabled: single && !isFolder) { model.openWithSelection() })
         menu.addItem(.separator())
 

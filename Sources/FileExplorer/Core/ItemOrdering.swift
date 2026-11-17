@@ -27,6 +27,9 @@ enum ItemOrdering {
                 cmp = a.kind.rawValue.compare(b.kind.rawValue).rawValue
                 if cmp == 0 { cmp = a.ext.compare(b.ext).rawValue }
                 if cmp == 0 { cmp = compareNames(a, b) }
+            case .location:
+                cmp = a.path.localizedStandardCompare(b.path).rawValue
+                if cmp == 0 { cmp = compareNames(a, b) }
             }
             return cmp != 0 ? cmp * sign < 0 : compareNames(a, b) < 0
         }

@@ -111,7 +111,7 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
         case item(FileItem)
     }
 
-    private static let defaultWidths: [String: CGFloat] = ["name": 320, "modified": 180, "type": 150, "size": 100]
+    private static let defaultWidths: [String: CGFloat] = ["name": 320, "modified": 180, "type": 150, "size": 100, "location": 280]
 
     let model: ExplorerModel
     let host: FileListHostView
@@ -122,6 +122,8 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
     private var suppress = false
     private var editingPath: String?
     private var editCancelled = false
+    private var locationColumn: NSTableColumn?
+    private var wasSearchResults: Bool = false
 
     init(model: ExplorerModel) {
         self.model = model
@@ -168,10 +170,13 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
             c.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: true)
             return c
         }
-        let size = column("size", "Size", min: 70, last: true)
+        let size = column("size", "Size", min: 70)
         size.headerCell.alignment = .right
+        let location = column("location", "Folder path", min: 180, last: true)
+        location.isHidden = true
+        locationColumn = location
         [column("name", "Name", min: 140), column("modified", "Date modified", min: 110),
-         column("type", "Type", min: 80), size].forEach(table.addTableColumn)
+         column("type", "Type", min: 80), size, location].forEach(table.addTableColumn)
     }
 
     deinit {
@@ -192,6 +197,20 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
     // MARK: Sync with the model
 
     func sync() {
+        let isSearch = model.isSearchResults
+        if isSearch != wasSearchResults {
+            wasSearchResults = isSearch
+            locationColumn?.isHidden = !isSearch
+            let sizeCol = table.tableColumns.first { $0.identifier.rawValue == "size" }
+            if isSearch {
+                sizeCol?.resizingMask = .userResizingMask
+                locationColumn?.resizingMask = [.autoresizingMask, .userResizingMask]
+            } else {
+                sizeCol?.resizingMask = [.autoresizingMask, .userResizingMask]
+            }
+            table.sizeToFit()
+        }
+
         if model.listVersion != lastVersion {
             lastVersion = model.listVersion
             rebuildRows()
@@ -339,6 +358,7 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
         case "modified": return Formatting.dateTime(item.modified)
         case "type": return FileKinds.label(for: item)
         case "size": return item.isDirectory ? "" : Formatting.bytes(item.size)
+        case "location": return PathUtils.parent(item.path)
         default: return ""
         }
     }
@@ -361,7 +381,7 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
 
     func tableViewColumnDidResize(_ notification: Notification) {
         guard !suppress, let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
-              column.identifier.rawValue != "size" else { return }
+              column.identifier.rawValue != "size", column.identifier.rawValue != "location" else { return }
         model.setColumnWidth(column.identifier.rawValue, Double(column.width))
     }
 
