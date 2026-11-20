@@ -10,6 +10,11 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# Prefer CommandLineTools to match macOS 15.5 SDK swiftmodules
+if [ -d "/Library/Developer/CommandLineTools" ]; then
+  export DEVELOPER_DIR="/Library/Developer/CommandLineTools"
+fi
+
 APP_NAME="File Explorer"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 OUT="dist"

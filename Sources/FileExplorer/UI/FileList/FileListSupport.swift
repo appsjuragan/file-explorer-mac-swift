@@ -150,11 +150,14 @@ final class ClosureMenuItem: NSMenuItem {
 /// Flat icon button used in the top row of the Windows 11 style context menu.
 private final class MenuIconButton: NSButton {
     private let handler: () -> Void
+    private var isHovered = false { didSet { needsDisplay = true } }
+    private var trackingArea: NSTrackingArea?
 
     init(symbol: String, tip: String, enabled: Bool, handler: @escaping () -> Void) {
         self.handler = handler
-        super.init(frame: NSRect(x: 0, y: 0, width: 36, height: 30))
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)
+        super.init(frame: .zero)
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?.withSymbolConfiguration(config)
         isBordered = false
         imagePosition = .imageOnly
         toolTip = tip
@@ -166,10 +169,55 @@ private final class MenuIconButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        if isEnabled { isHovered = true }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovered = false
+    }
+
+    override func resetCursorRects() {
+        if isEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isHighlighted && isEnabled {
+            let hoverRect = bounds.insetBy(dx: 2, dy: 1)
+            let path = NSBezierPath(roundedRect: hoverRect, xRadius: 5, yRadius: 5)
+            NSColor.labelColor.withAlphaComponent(0.14).setFill()
+            path.fill()
+        } else if isHovered && isEnabled {
+            let hoverRect = bounds.insetBy(dx: 2, dy: 1)
+            let path = NSBezierPath(roundedRect: hoverRect, xRadius: 5, yRadius: 5)
+            NSColor.labelColor.withAlphaComponent(0.08).setFill()
+            path.fill()
+        }
+        super.draw(dirtyRect)
+    }
+
     @objc private func fire() {
         enclosingMenuItem?.menu?.cancelTracking()
         let work = handler
         DispatchQueue.main.async { work() }     // after the menu has dismissed
+    }
+}
+
+private final class IconRowContainer: NSView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 240, height: 38)
     }
 }
 
@@ -242,11 +290,21 @@ struct ContextMenuBuilder {
         ]
         let stack = NSStackView(views: buttons)
         stack.orientation = .horizontal
-        stack.spacing = 4
+        stack.spacing = 6
         stack.distribution = .fillEqually
-        stack.frame = NSRect(x: 8, y: 2, width: 5 * 36 + 4 * 4, height: 30)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: stack.frame.width + 16, height: 34))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = IconRowContainer(frame: NSRect(x: 0, y: 0, width: 240, height: 38))
+        container.autoresizingMask = [.width]
         container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 5),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5)
+        ])
+
         let row = NSMenuItem()
         row.view = container
         return row

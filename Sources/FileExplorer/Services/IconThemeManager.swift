@@ -433,11 +433,13 @@ enum WindowsSVGs {
         """,
         text: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#ECEFF1"/>
-          <path d="M28 4v12h14" fill="#CFD8DC"/>
-          <rect x="14" y="20" width="20" height="2" rx="1" fill="#78909C"/>
-          <rect x="14" y="25" width="20" height="2" rx="1" fill="#78909C"/>
-          <rect x="14" y="30" width="14" height="2" rx="1" fill="#78909C"/>
+          <path d="M10 5.5a4 4 0 0 0-4 4v31a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V17.5L28 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#ffffff" stroke="#90A4AE" stroke-width="1.2"/>
+          <path d="M28 4v12h14" fill="#CFD8DC" stroke="#90A4AE" stroke-width="1.2" stroke-linejoin="round"/>
+          <rect x="13" y="21" width="22" height="2.5" rx="1.25" fill="#0078D4"/>
+          <rect x="13" y="26" width="22" height="2.5" rx="1.25" fill="#455A64"/>
+          <rect x="13" y="31" width="16" height="2.5" rx="1.25" fill="#455A64"/>
+          <rect x="13" y="36" width="10" height="2.5" rx="1.25" fill="#78909C"/>
         </svg>
         """,
         image: """
@@ -473,8 +475,9 @@ enum WindowsSVGs {
         """,
         file: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#CFD8DC"/>
-          <path d="M28 4v12h14" fill="#B0BEC5"/>
+          <path d="M10 5.5a4 4 0 0 0-4 4v31a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V17.5L28 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#ffffff" stroke="#90A4AE" stroke-width="1.2"/>
+          <path d="M28 4v12h14" fill="#CFD8DC" stroke="#90A4AE" stroke-width="1.2" stroke-linejoin="round"/>
         </svg>
         """
     )
@@ -641,11 +644,13 @@ enum MacSVGs {
         """,
         text: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a3 3 0 0 0-3 3v34a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V16L29 4H10z" fill="#ffffff"/>
-          <path d="M29 4v12h12" fill="#E5E5EA"/>
-          <rect x="14" y="22" width="20" height="2" rx="1" fill="#8E8E93"/>
-          <rect x="14" y="27" width="20" height="2" rx="1" fill="#8E8E93"/>
-          <rect x="14" y="32" width="14" height="2" rx="1" fill="#8E8E93"/>
+          <path d="M10 5.5a3 3 0 0 0-3 3v33a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V17.5L29 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a3 3 0 0 0-3 3v34a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V16L29 4H10z" fill="#ffffff" stroke="#C7C7CC" stroke-width="1.2"/>
+          <path d="M29 4v12h12" fill="#E5E5EA" stroke="#C7C7CC" stroke-width="1.2" stroke-linejoin="round"/>
+          <rect x="13" y="22" width="22" height="2.5" rx="1.25" fill="#007AFF"/>
+          <rect x="13" y="27" width="22" height="2.5" rx="1.25" fill="#48484A"/>
+          <rect x="13" y="32" width="16" height="2.5" rx="1.25" fill="#48484A"/>
+          <rect x="13" y="37" width="10" height="2.5" rx="1.25" fill="#8E8E93"/>
         </svg>
         """,
         image: """
@@ -680,8 +685,9 @@ enum MacSVGs {
         """,
         file: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a3 3 0 0 0-3 3v34a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V16L29 4H10z" fill="#ffffff"/>
-          <path d="M29 4v12h12" fill="#D1D1D6"/>
+          <path d="M10 5.5a3 3 0 0 0-3 3v33a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V17.5L29 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a3 3 0 0 0-3 3v34a3 3 0 0 0 3 3h28a3 3 0 0 0 3-3V16L29 4H10z" fill="#ffffff" stroke="#C7C7CC" stroke-width="1.2"/>
+          <path d="M29 4v12h12" fill="#E5E5EA" stroke="#C7C7CC" stroke-width="1.2" stroke-linejoin="round"/>
         </svg>
         """
     )
@@ -843,11 +849,13 @@ enum UbuntuSVGs {
         """,
         text: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#FAFAFA"/>
-          <path d="M28 4v12h14" fill="#E0E0E0"/>
-          <rect x="14" y="22" width="20" height="2" rx="1" fill="#E95420"/>
-          <rect x="14" y="27" width="20" height="2" rx="1" fill="#9E9E9E"/>
-          <rect x="14" y="32" width="14" height="2" rx="1" fill="#9E9E9E"/>
+          <path d="M10 5.5a4 4 0 0 0-4 4v31a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V17.5L28 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#ffffff" stroke="#BDBDBD" stroke-width="1.2"/>
+          <path d="M28 4v12h14" fill="#E0E0E0" stroke="#BDBDBD" stroke-width="1.2" stroke-linejoin="round"/>
+          <rect x="13" y="21" width="22" height="2.5" rx="1.25" fill="#E95420"/>
+          <rect x="13" y="26" width="22" height="2.5" rx="1.25" fill="#424242"/>
+          <rect x="13" y="31" width="16" height="2.5" rx="1.25" fill="#424242"/>
+          <rect x="13" y="36" width="10" height="2.5" rx="1.25" fill="#757575"/>
         </svg>
         """,
         image: """
@@ -882,8 +890,9 @@ enum UbuntuSVGs {
         """,
         file: """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#EEEEEE"/>
-          <path d="M28 4v12h14" fill="#BDBDBD"/>
+          <path d="M10 5.5a4 4 0 0 0-4 4v31a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V17.5L28 5.5H10z" fill="#000000" opacity="0.12"/>
+          <path d="M10 4a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16L28 4H10z" fill="#ffffff" stroke="#BDBDBD" stroke-width="1.2"/>
+          <path d="M28 4v12h14" fill="#E0E0E0" stroke="#BDBDBD" stroke-width="1.2" stroke-linejoin="round"/>
         </svg>
         """
     )
