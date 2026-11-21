@@ -169,6 +169,14 @@ private final class MenuIconButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override var alignmentRectInsets: NSEdgeInsets {
+        NSEdgeInsetsZero
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 36, height: 30)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
@@ -292,6 +300,7 @@ struct ContextMenuBuilder {
         stack.orientation = .horizontal
         stack.spacing = 6
         stack.distribution = .fillEqually
+        stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let container = IconRowContainer(frame: NSRect(x: 0, y: 0, width: 240, height: 38))
@@ -301,8 +310,8 @@ struct ContextMenuBuilder {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 5),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -5)
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4)
         ])
 
         let row = NSMenuItem()
