@@ -5,6 +5,7 @@ xcuserdata/
 dist/
 release/
 *.log
+*.zip
 .DS_Store
 
 # Signing / notarization secrets — NEVER commit

@@ -32,7 +32,20 @@ final class FileTableView: NSTableView, FileListControl {
 
 // MARK: - Cells
 
-private final class NameCell: NSTableCellView {
+/// A cell showing one file. Its tooltip is built lazily on hover (see `LazyToolTip`).
+private class ItemCell: NSTableCellView {
+    var item: FileItem?
+    private lazy var lazyToolTip = LazyToolTip(for: self) { [weak self] in
+        self?.item.map(FileTooltipHelper.tooltip(for:))
+    }
+
+    override func layout() {
+        super.layout()
+        lazyToolTip.refresh()
+    }
+}
+
+private final class NameCell: ItemCell {
     static let id = NSUserInterfaceItemIdentifier("fe.cell.name")
 
     override init(frame: NSRect) {
@@ -60,7 +73,7 @@ private final class NameCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
-private final class TextCell: NSTableCellView {
+private final class TextCell: ItemCell {
     init(identifier: NSUserInterfaceItemIdentifier, alignment: NSTextAlignment) {
         super.init(frame: .zero)
         self.identifier = identifier
@@ -157,8 +170,6 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
         table.setDraggingSourceOperationMask(.every, forLocal: true)
         table.setDraggingSourceOperationMask(.every, forLocal: false)
         table.contextMenuProvider = { [weak self] event in self?.contextMenu(for: event) }
-        NotificationCenter.default.addObserver(self, selector: #selector(folderStatsUpdated(_:)),
-                                               name: FileTooltipHelper.folderStatsUpdated, object: nil)
 
         let saved = model.prefs.value.columnWidths
         func column(_ id: String, _ title: String, min: CGFloat, last: Bool = false) -> NSTableColumn {
@@ -177,21 +188,6 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
         locationColumn = location
         [column("name", "Name", min: 140), column("modified", "Date modified", min: 110),
          column("type", "Type", min: 80), size, location].forEach(table.addTableColumn)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func folderStatsUpdated(_ notification: Notification) {
-        guard let path = notification.object as? String, let row = rowForPath[path] else { return }
-        guard row < rows.count, case .item(let item) = rows[row] else { return }
-        let tip = FileTooltipHelper.tooltip(for: item)
-        for col in 0..<table.numberOfColumns {
-            if let cell = table.view(atColumn: col, row: row, makeIfNecessary: false) as? NSTableCellView {
-                cell.toolTip = tip
-            }
-        }
     }
 
     // MARK: Sync with the model
@@ -336,9 +332,10 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
             case "name":
                 let cell = tableView.makeView(withIdentifier: NameCell.id, owner: nil) as? NameCell ?? NameCell()
                 cell.identifier = NameCell.id
+                cell.item = item
                 cell.imageView?.image = IconProvider.shared.icon(for: item)
                 cell.textField?.stringValue = item.name
-                cell.toolTip = FileTooltipHelper.tooltip(for: item)
+                FileTooltipHelper.prefetch(for: item)
                 let alpha: CGFloat = item.isHidden ? 0.55 : 1
                 cell.textField?.alphaValue = alpha
                 cell.imageView?.alphaValue = alpha
@@ -346,8 +343,8 @@ final class DetailsTableController: NSObject, NSTableViewDataSource, NSTableView
             default:
                 let cell = tableView.makeView(withIdentifier: id, owner: nil) as? TextCell
                     ?? TextCell(identifier: id, alignment: id.rawValue == "size" ? .right : .left)
+                cell.item = item
                 cell.textField?.stringValue = text(for: id.rawValue, item)
-                cell.toolTip = FileTooltipHelper.tooltip(for: item)
                 return cell
             }
         }

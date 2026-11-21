@@ -47,7 +47,10 @@ final class ExplorerModel: ObservableObject, Identifiable {
     @Published private(set) var isLoading = false
     @Published private(set) var loadError: FileOpError?
     private(set) var visibleItems: [FileItem] = []
+    /// Path → index in `visibleItems`; turns selection lookups into O(selection) instead of O(folder).
+    private var indexByPath: [String: Int] = [:]
     private var loadTask: Task<Void, Never>?
+    private var layoutTask: Task<Void, Never>?
 
     // MARK: Sidebar data
     @Published private(set) var quickLinks: [QuickLink] = []
@@ -240,7 +243,10 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     var isHome: Bool { currentPath == PathUtils.home }
     var activeTab: Tab { tabs.first { $0.id == activeTabID } ?? tabs[0] }
-    var selectedItems: [FileItem] { visibleItems.filter { selection.contains($0.path) } }
+    /// Selected items in display order. Called from view bodies, so it must not scan the folder.
+    var selectedItems: [FileItem] { selection.compactMap { indexByPath[$0] }.sorted().map { visibleItems[$0] } }
+    /// The visible item at `path`, if any.
+    func item(at path: String) -> FileItem? { indexByPath[path].map { visibleItems[$0] } }
     var canPaste: Bool { !isHome && (clipboard != nil || osClipboardHasFiles) }
 
     // MARK: - Lifecycle
@@ -324,7 +330,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
             case .success(let loaded):
                 if loaded.items != self.items {
                     self.apply(loaded)
-                    FileIndexWorker.shared.indexLoadedItems(loaded.items, in: path)
+                    FileIndexWorker.shared.indexLoadedItems(loaded.items, in: path)   // also invalidates stale stats
                     self.reloadTreeBranch(for: path)
                 }
             case .failure(let error):
@@ -338,9 +344,8 @@ final class ExplorerModel: ObservableObject, Identifiable {
     private func load(_ path: String) {
         loadTask?.cancel()
         if path == PathUtils.home {
-            items = []; visibleItems = []; sections = []
+            setLayout(.empty)
             isLoading = false; loadError = nil
-            listVersion += 1
             return
         }
         isLoading = true
@@ -368,48 +373,73 @@ final class ExplorerModel: ObservableObject, Identifiable {
         let items: [FileItem]
         let visible: [FileItem]
         let sections: [ItemSection]
+        let indexByPath: [String: Int]
+        /// The settings this layout was computed with.
+        let settings: ItemOrdering.Settings?
+
+        static let empty = Loaded(items: [], visible: [], sections: [], indexByPath: [:], settings: nil)
 
         static func make(_ items: [FileItem], _ s: ItemOrdering.Settings) -> Loaded {
             let visible = ItemOrdering.visible(items, showHidden: s.showHidden, sortKey: s.sortKey, direction: s.sortDirection)
-            return Loaded(items: items, visible: visible, sections: ItemOrdering.sections(visible, groupBy: s.groupBy))
+            var index = [String: Int](minimumCapacity: visible.count)
+            for (i, item) in visible.enumerated() { index[item.path] = i }
+            return Loaded(items: items, visible: visible, sections: ItemOrdering.sections(visible, groupBy: s.groupBy),
+                          indexByPath: index, settings: s)
         }
     }
 
-    private func apply(_ loaded: Loaded) {
+    /// Folders up to this size are re-sorted inline (no visible lag); larger ones off the main thread.
+    private static let inlineLayoutLimit = 2_000
+
+    private func setLayout(_ loaded: Loaded) {
+        layoutTask?.cancel()
         items = loaded.items
         visibleItems = loaded.visible
         sections = loaded.sections
+        indexByPath = loaded.indexByPath
+        listVersion += 1
+    }
+
+    private func apply(_ loaded: Loaded) {
+        setLayout(loaded)
         isLoading = false
         loadError = nil
-        listVersion += 1
-        let present = Set(visibleItems.map(\.path))
         if let pending = pendingRenamePath {
             pendingRenamePath = nil
-            if present.contains(pending) {
+            if indexByPath[pending] != nil {
                 selection = [pending]
                 renamingPath = pending
             }
         } else if let toSelect = pendingSelectPath {
             pendingSelectPath = nil
-            if present.contains(toSelect) {
+            if indexByPath[toSelect] != nil {
                 selection = [toSelect]
             }
         }
-        selection = selection.intersection(present)
+        let stillVisible = selection.filter { indexByPath[$0] != nil }
+        if stillVisible.count != selection.count { selection = stillVisible }
+        // Sort/group/hidden settings changed while this was loading: lay it out again.
+        if loaded.settings != settings { recompute(settings) }
     }
 
     private func fail(_ error: FileOpError) {
-        items = []; visibleItems = []; sections = []
+        setLayout(.empty)
         isLoading = false
         loadError = error
-        listVersion += 1
     }
 
     private func recompute(_ s: ItemOrdering.Settings) {
-        let loaded = Loaded.make(items, s)
-        visibleItems = loaded.visible
-        sections = loaded.sections
-        listVersion += 1
+        let items = items
+        if items.count <= Self.inlineLayoutLimit {
+            setLayout(Loaded.make(items, s))
+            return
+        }
+        layoutTask?.cancel()
+        layoutTask = Task { [weak self] in
+            let loaded = await Task.detached(priority: .userInitiated) { Loaded.make(items, s) }.value
+            guard let self, !Task.isCancelled else { return }
+            self.setLayout(loaded)
+        }
     }
 
     // MARK: - Navigation
@@ -563,7 +593,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
         else { typeBuffer += characters }
         let needle = typeBuffer.lowercased()
         var current = -1
-        if selection.count == 1, let idx = visibleItems.firstIndex(where: { selection.contains($0.path) }) { current = idx }
+        if selection.count == 1, let selected = selection.first, let idx = indexByPath[selected] { current = idx }
         let start = cycle ? (current + 1 + visibleItems.count) % visibleItems.count : 0
         for k in 0..<visibleItems.count {
             let idx = (start + k) % visibleItems.count

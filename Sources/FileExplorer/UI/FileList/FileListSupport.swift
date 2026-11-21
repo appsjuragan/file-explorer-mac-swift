@@ -247,7 +247,7 @@ struct ContextMenuBuilder {
     private func addItemCommands(to menu: NSMenu, path: String) {
         let selection = model.contextSelection(for: path)
         let single = selection.count == 1
-        let item = model.visibleItems.first { $0.path == path }
+        let item = model.item(at: path)
         let isFolder = item?.opensAsFolder ?? false
         let isZip = item?.ext == "zip"
 

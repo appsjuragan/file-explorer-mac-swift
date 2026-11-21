@@ -21,10 +21,10 @@ enum ItemOrdering {
             var cmp = 0
             switch sortKey {
             case .name: cmp = compareNames(a, b)
-            case .modified: cmp = a.modified < b.modified ? -1 : (a.modified > b.modified ? 1 : 0)
-            case .size: cmp = a.size < b.size ? -1 : (a.size > b.size ? 1 : 0)
+            case .modified: cmp = threeWay(a.modified, b.modified)
+            case .size: cmp = threeWay(a.size, b.size)
             case .type:
-                cmp = a.kind.rawValue.compare(b.kind.rawValue).rawValue
+                cmp = threeWay(a.kind.rawValue, b.kind.rawValue)       // ASCII identifiers: no Foundation round-trip
                 if cmp == 0 { cmp = a.ext.compare(b.ext).rawValue }
                 if cmp == 0 { cmp = compareNames(a, b) }
             case .location:
@@ -40,13 +40,19 @@ enum ItemOrdering {
         a.name.localizedStandardCompare(b.name).rawValue
     }
 
+    private static func threeWay<T: Comparable>(_ a: T, _ b: T) -> Int {
+        a < b ? -1 : (a > b ? 1 : 0)
+    }
+
     static func sections(_ visible: [FileItem], groupBy: GroupKey, now: Date = Date(),
                          calendar: Calendar = .current) -> [ItemSection] {
         guard groupBy != .none else { return [ItemSection(label: "", items: visible)] }
+        // Calendar math once per layout, not once per item.
+        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
         var buckets: [String: [FileItem]] = [:]
         var order: [String] = []
         for item in visible {
-            let label = groupLabel(item, key: groupBy, now: now, calendar: calendar)
+            let label = groupLabel(item, key: groupBy, startOfToday: startOfToday)
             if buckets[label] == nil { order.append(label) }
             buckets[label, default: []].append(item)
         }
@@ -54,14 +60,19 @@ enum ItemOrdering {
     }
 
     static func groupLabel(_ item: FileItem, key: GroupKey, now: Date, calendar: Calendar) -> String {
+        groupLabel(item, key: key, startOfToday: calendar.startOfDay(for: now).timeIntervalSince1970)
+    }
+
+    private static func groupLabel(_ item: FileItem, key: GroupKey, startOfToday: TimeInterval) -> String {
         switch key {
         case .none: return ""
         case .name:
-            guard let c = item.name.uppercased().first, c.isASCII, c.isLetter else { return "#" }
+            // Only the first character matters; don't upper-case the whole name.
+            guard let c = item.name.first.flatMap({ String($0).uppercased().first }), c.isASCII, c.isLetter else { return "#" }
             return String(c)
         case .type: return item.isDirectory ? "Folders" : FileKinds.label(for: item)
         case .size: return sizeGroup(item.size, isDirectory: item.isDirectory)
-        case .modified: return modifiedGroup(item.modified, now: now, calendar: calendar)
+        case .modified: return modifiedGroup(item.modified, startOfToday: startOfToday)
         }
     }
 
@@ -76,7 +87,10 @@ enum ItemOrdering {
     }
 
     static func modifiedGroup(_ epoch: TimeInterval, now: Date, calendar: Calendar) -> String {
-        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
+        modifiedGroup(epoch, startOfToday: calendar.startOfDay(for: now).timeIntervalSince1970)
+    }
+
+    private static func modifiedGroup(_ epoch: TimeInterval, startOfToday: TimeInterval) -> String {
         let day: TimeInterval = 86_400
         if epoch >= startOfToday { return "Today" }
         if epoch >= startOfToday - day { return "Yesterday" }

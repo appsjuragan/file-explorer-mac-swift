@@ -7,6 +7,14 @@ struct FileSystemService: Sendable {
         .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
         .contentModificationDateKey, .creationDateKey, .isHiddenKey
     ]
+    /// Built once: `resourceValues(forKeys:)` takes a Set, and rebuilding it per entry
+    /// was a measurable share of listing time in large folders.
+    private static let itemKeySet = Set(itemKeys)
+    private static let symlinkTargetKeys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey]
+    private static let sizeScanKeys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
+    private static let sizeScanKeySet = Set(sizeScanKeys)
+    /// "Name - Copy (3)" → "Name". Compiled once instead of per paste.
+    private static let copySuffixPattern = try? NSRegularExpression(pattern: #"^(.*?)(?: - Copy(?: \((\d+)\))?)?$"#)
 
     private var fm: FileManager { .default }
 
@@ -34,11 +42,11 @@ struct FileSystemService: Sendable {
     }
 
     func makeItem(_ url: URL) throws -> FileItem {
-        let values = try url.resourceValues(forKeys: Set(Self.itemKeys))
+        let values = try url.resourceValues(forKeys: Self.itemKeySet)
         let isLink = values.isSymbolicLink ?? false
         var isDirectory = values.isDirectory ?? false
         var size = Int64(values.fileSize ?? 0)
-        if isLink, let target = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) {
+        if isLink, let target = try? url.resolvingSymlinksInPath().resourceValues(forKeys: Self.symlinkTargetKeys) {
             isDirectory = target.isDirectory ?? false
             size = Int64(target.fileSize ?? 0)
         }
@@ -134,7 +142,7 @@ struct FileSystemService: Sendable {
         let stem = ext.isEmpty ? name : ns.deletingPathExtension
 
         var base = stem
-        if let regex = try? NSRegularExpression(pattern: #"^(.*?)(?: - Copy(?: \((\d+)\))?)?$"#),
+        if let regex = Self.copySuffixPattern,
            let match = regex.firstMatch(in: stem, range: NSRange(location: 0, length: stem.utf16.count)),
            let baseRange = Range(match.range(at: 1), in: stem), !baseRange.isEmpty {
             base = String(stem[baseRange])
@@ -248,12 +256,13 @@ struct FileSystemService: Sendable {
                   progress: (@Sendable (OpProgress) -> Void)? = nil) throws -> TransferResult {
         precondition(op == .copy || op == .move)
         let dest = PathUtils.standardized(destination)
+        let reporter = ProgressThrottle(progress)
         var moves: [FileMove] = []
         var done = 0
         for source in sources {
             if Task.isCancelled { break }
             let name = PathUtils.basename(source)
-            progress?(OpProgress(op: op, done: done, total: sources.count, name: name))
+            reporter.report(OpProgress(op: op, done: done, total: sources.count, name: name))
             let src = PathUtils.standardized(source)
             let sameFolder = PathUtils.parent(src) == dest
 
@@ -280,37 +289,46 @@ struct FileSystemService: Sendable {
             } catch { throw FileOpError(wrapping: error) }
             moves.append(FileMove(from: src, to: target))
             done += 1
-            progress?(OpProgress(op: op, done: done, total: sources.count, name: name))
+            reporter.report(OpProgress(op: op, done: done, total: sources.count, name: name))
         }
         return TransferResult(moves: moves)
     }
 
-    // MARK: - Search
+    // MARK: - Walking & search
+
+    /// Depth-first walk below `root`, one directory listing at a time (`root`'s own listing
+    /// first). Never follows symlinks and never enters app bundles, whose thousands of
+    /// internal files are noise for the user. Stops when `visit` returns false, on task
+    /// cancellation, or at `deadline`.
+    /// - Returns: true when every folder down to `maxDepth` levels below `root` was listed.
+    @discardableResult
+    func walk(_ root: String, maxDepth: Int, deadline: Date,
+              visit: (_ directory: String, _ children: [FileItem]) -> Bool) -> Bool {
+        var stack: [(path: String, depth: Int)] = [(root, 0)]
+        var complete = true
+        while let (dir, depth) = stack.popLast() {
+            if Task.isCancelled || Date() > deadline { return false }
+            guard let children = try? readDirectory(dir) else { continue }
+            guard visit(dir, children) else { return false }
+            for child in children where child.opensAsFolder && !child.isSymbolicLink {
+                if depth < maxDepth { stack.append((child.path, depth + 1)) } else { complete = false }
+            }
+        }
+        return complete
+    }
 
     /// Recursive name search, bounded by result count, depth and time; cancellable.
     func search(root: String, query: String, maxResults: Int = 500, maxDepth: Int = 8,
                 timeLimit: TimeInterval = 8) -> [FileItem] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return [] }
-        let deadline = Date().addingTimeInterval(timeLimit)
+        guard !needle.isEmpty, maxResults > 0 else { return [] }
         var results: [FileItem] = []
-        var stack: [(path: String, depth: Int)] = [(root, 0)]
-
-        while let (dir, depth) = stack.popLast() {
-            if Task.isCancelled || Date() > deadline || results.count >= maxResults { break }
-            guard let urls = try? fm.contentsOfDirectory(
-                at: URL(fileURLWithPath: dir, isDirectory: true),
-                includingPropertiesForKeys: Self.itemKeys, options: []) else { continue }
-            for url in urls {
-                if results.count >= maxResults { break }
-                guard let item = try? makeItem(url) else { continue }
-                if item.name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil {
-                    results.append(item)
-                }
-                if item.isDirectory && !item.isSymbolicLink && depth < maxDepth {
-                    stack.append((item.path, depth + 1))
-                }
+        walk(root, maxDepth: maxDepth, deadline: Date().addingTimeInterval(timeLimit)) { _, children in
+            for item in children where item.name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil {
+                results.append(item)
+                if results.count >= maxResults { return false }
             }
+            return true
         }
         return results
     }
@@ -348,12 +366,11 @@ struct FileSystemService: Sendable {
     func folderSize(_ path: String, timeLimit: TimeInterval = 12) -> FolderSize {
         var result = FolderSize(size: 0, files: 0, folders: 0, complete: true)
         let deadline = Date().addingTimeInterval(timeLimit)
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
-        guard let walker = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: keys,
+        guard let walker = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: Self.sizeScanKeys,
                                          options: [], errorHandler: { _, _ in true }) else { return result }
         for case let url as URL in walker {
             if Task.isCancelled || Date() > deadline { result.complete = false; break }
-            guard let v = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+            guard let v = try? url.resourceValues(forKeys: Self.sizeScanKeySet) else { continue }
             if v.isSymbolicLink ?? false { continue }
             if v.isDirectory ?? false { result.folders += 1 }
             else { result.files += 1; result.size += Int64(v.fileSize ?? 0) }
@@ -444,11 +461,10 @@ struct FileSystemService: Sendable {
 
         progress?(OpProgress(op: .compress, done: 0, total: totalItems, name: ""))
 
-        final class CompressionProgressState: @unchecked Sendable {
-            var doneCount = 0
-            var lastUpdate = Date()
-        }
-        let state = CompressionProgressState()
+        /// Lines arrive on one pipe-reader thread at a time; the box only exists to satisfy `@Sendable`.
+        final class Counter: @unchecked Sendable { var value = 0 }
+        let entriesDone = Counter()
+        let reporter = ProgressThrottle(progress)
 
         let binary: String
         let args: [String]
@@ -490,16 +506,11 @@ struct FileSystemService: Sendable {
                 }
 
                 if let entryPath, !entryPath.isEmpty {
-                    state.doneCount += 1
+                    entriesDone.value += 1
                     let displayName = PathUtils.basename(entryPath)
                     let nameToShow = displayName.isEmpty ? entryPath : displayName
-
-                    let now = Date()
-                    let count = state.doneCount
-                    if count == 1 || count == totalItems || now.timeIntervalSince(state.lastUpdate) >= 0.05 {
-                        state.lastUpdate = now
-                        progress?(OpProgress(op: .compress, done: min(count, totalItems), total: totalItems, name: nameToShow))
-                    }
+                    reporter.report(OpProgress(op: .compress, done: min(entriesDone.value, totalItems),
+                                               total: totalItems, name: nameToShow))
                 }
             }
         } catch {

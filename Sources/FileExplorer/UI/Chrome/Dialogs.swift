@@ -94,7 +94,7 @@ struct PropertiesSheet: View {
     }
 
     private func item(_ info: PropertyInfo) -> FileItem {
-        model.visibleItems.first { $0.path == info.path } ?? FileItem(
+        model.item(at: info.path) ?? FileItem(
             name: info.name, path: info.path, isDirectory: info.isDirectory, isSymbolicLink: info.isSymbolicLink,
             size: info.size, modified: info.modified, created: info.created,
             ext: (info.name as NSString).pathExtension.lowercased(), isHidden: false, kind: info.kind)

@@ -17,7 +17,7 @@ struct PreviewPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let path = subject, let item = model.selectedItems.first {
+                if let path = subject, let item = model.item(at: path) {
                     header(item)
                     facts
                     if let text {
