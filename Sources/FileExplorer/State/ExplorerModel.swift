@@ -30,6 +30,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     private let fs: FileSystemService
     private let cloud: CloudService
+    private let watcher = DirectoryWatcher()
     private var bag = Set<AnyCancellable>()
     private var started = false
 
@@ -123,6 +124,16 @@ final class ExplorerModel: ObservableObject, Identifiable {
             .dropFirst()
             .sink { [weak self] settings in self?.recompute(settings) }
             .store(in: &bag)
+
+        watcher.onChange = { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.reloadCurrentDirectorySilently()
+            }
+        }
+    }
+
+    deinit {
+        watcher.stop()
     }
 
     // MARK: - Settings (backed by shared preferences)
@@ -243,7 +254,10 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
         let center = NotificationCenter.default
         center.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.refreshClipboardStatus() }.store(in: &bag)
+            .sink { [weak self] _ in
+                self?.refreshClipboardStatus()
+                self?.reloadCurrentDirectorySilently()
+            }.store(in: &bag)
         let ws = NSWorkspace.shared.notificationCenter
         ws.publisher(for: NSWorkspace.didMountNotification).merge(with: ws.publisher(for: NSWorkspace.didUnmountNotification))
             .sink { [weak self] _ in self?.loadLocations() }.store(in: &bag)
@@ -290,6 +304,35 @@ final class ExplorerModel: ObservableObject, Identifiable {
         if isSearchResults { runSearch() } else { load(currentPath) }
         reloadTreeBranch(for: currentPath)
         reloadTreeBranch(for: PathUtils.parent(currentPath))
+    }
+
+    /// Silently reloads the current directory when the filesystem watcher detects external changes.
+    /// Does not show a progress spinner and preserves user selection if items still exist.
+    func reloadCurrentDirectorySilently() {
+        guard !isHome, !isSearchResults, fs.isDirectory(currentPath) else { return }
+        let path = currentPath
+        let fs = fs, settings = settings
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<Loaded, FileOpError> in
+                do {
+                    let items = try fs.readDirectory(path)
+                    return .success(Loaded.make(items, settings))
+                } catch { return .failure(FileOpError(wrapping: error)) }
+            }.value
+            guard let self, !Task.isCancelled, self.currentPath == path else { return }
+            switch result {
+            case .success(let loaded):
+                if loaded.items != self.items {
+                    self.apply(loaded)
+                    FileIndexWorker.shared.indexLoadedItems(loaded.items, in: path)
+                    self.reloadTreeBranch(for: path)
+                }
+            case .failure(let error):
+                if !self.fs.isDirectory(path) {
+                    self.fail(error)
+                }
+            }
+        }
     }
 
     private func load(_ path: String) {
@@ -391,6 +434,11 @@ final class ExplorerModel: ObservableObject, Identifiable {
         isAddressEditing = false
         cancelSearch(reload: false)
         load(path)
+        if path == PathUtils.home {
+            watcher.stop()
+        } else {
+            watcher.watch(path: path)
+        }
         syncTreeToOpenedFolder(path)
         scheduleSessionSave()
     }
@@ -862,6 +910,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
     func runSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty, !isHome else { return }
+        watcher.stop()
         searchTask?.cancel()
         loadTask?.cancel()
         isSearchResults = true
@@ -881,7 +930,12 @@ final class ExplorerModel: ObservableObject, Identifiable {
         let was = isSearchResults || !searchQuery.isEmpty
         searchQuery = ""
         isSearchResults = false
-        if reload && was { load(currentPath) }
+        if reload && was {
+            load(currentPath)
+            if currentPath != PathUtils.home {
+                watcher.watch(path: currentPath)
+            }
+        }
     }
 
     // MARK: - View settings

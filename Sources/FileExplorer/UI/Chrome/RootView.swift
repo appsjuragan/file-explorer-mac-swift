@@ -47,6 +47,7 @@ struct RootView: View {
             if (note.object as? NSWindow) === model.window {
                 WindowRegistry.shared.markActive(model)
                 model.refreshClipboardStatus()
+                model.reloadCurrentDirectorySilently()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
