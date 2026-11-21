@@ -130,16 +130,46 @@ struct Toast: View {
 
 struct ProgressCard: View {
     let progress: OpProgress
+    var onCancel: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("\(progress.op.verb) \(progress.total) item\(progress.total == 1 ? "" : "s")")
-                .font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .center) {
+                Text("\(progress.op.verb) \(progress.total) item\(progress.total == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                if let onCancel {
+                    Button(action: onCancel) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel")
+                }
+            }
+
             ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
-            Text(progress.name).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+
+            HStack(spacing: 6) {
+                Text("\(progress.done) of \(progress.total)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                if !progress.name.isEmpty {
+                    Text("•")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Text(progress.name)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+            }
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.12)))
         .shadow(radius: 8, y: 2)

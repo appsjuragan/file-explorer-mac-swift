@@ -76,6 +76,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
     @Published var pendingTransfer: PendingTransfer?
     @Published var propertiesTarget: PropertiesTarget?
     @Published private(set) var operation: OpProgress?
+    private var activeOperationHandle: ProcessHandle?
     @Published private(set) var undoStack: [UndoEntry] = []
     @Published private(set) var statusMessage: String?
     @Published private(set) var focusRequest: FocusRequest?
@@ -752,17 +753,36 @@ final class ExplorerModel: ObservableObject, Identifiable {
 
     // MARK: - Archives
 
+    func cancelOperation() {
+        activeOperationHandle?.cancel()
+        activeOperationHandle = nil
+        operation = nil
+        refresh()
+    }
+
     func compressSelection() {
         let paths = Array(selection)
         guard !paths.isEmpty, !isHome else { return }
-        operation = OpProgress(op: .compress, done: 0, total: 1, name: "")
+        let handle = ProcessHandle()
+        activeOperationHandle = handle
+        operation = OpProgress(op: .compress, done: 0, total: paths.count, name: "")
         let fs = fs, dir = currentPath
+        let sink = progressSink()
         Task { [weak self] in
-            guard let result = await self?.background({ try fs.compressZip(paths, into: dir) }), let self else { return }
+            let result = await self?.background({
+                try fs.compressZip(paths, into: dir, handle: handle, progress: sink)
+            })
+            guard let self else { return }
+            self.activeOperationHandle = nil
             self.operation = nil
+            guard let result else { return }
             switch result {
-            case .failure(let error): self.flash(error.message)
-            case .success(let item): self.pendingRenamePath = item.path
+            case .failure(let error):
+                if error.message != "Compression cancelled." {
+                    self.flash(error.message)
+                }
+            case .success(let item):
+                self.pendingRenamePath = item.path
             }
             self.refresh()
         }

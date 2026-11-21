@@ -58,7 +58,9 @@ struct RootView: View {
     private var overlays: some View {
         VStack(alignment: .trailing, spacing: 10) {
             UpdateBanner(updates: updates)
-            if let progress = model.operation { ProgressCard(progress: progress) }
+            if let progress = model.operation {
+                ProgressCard(progress: progress, onCancel: { model.cancelOperation() })
+            }
             if let message = model.statusMessage, model.operation == nil { Toast(message: message) }
         }
         .animation(.easeInOut(duration: 0.2), value: model.statusMessage)

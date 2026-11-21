@@ -375,21 +375,90 @@ struct FileSystemService: Sendable {
 
     // MARK: - Archives
 
+    /// Counts all items (files and folders) inside the given source paths.
+    func countArchiveItems(in sources: [String]) -> Int {
+        var count = 0
+        for path in sources {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: path, isDirectory: &isDir) {
+                count += 1
+                if isDir.boolValue {
+                    if let enumerator = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: nil, options: []) {
+                        for _ in enumerator {
+                            count += 1
+                        }
+                    }
+                }
+            }
+        }
+        return count
+    }
+
     /// Zips the items (which must share a parent folder) into `destination`.
-    func compressZip(_ sources: [String], into destination: String) throws -> FileItem {
+    func compressZip(
+        _ sources: [String],
+        into destination: String,
+        handle: ProcessHandle? = nil,
+        progress: (@Sendable (OpProgress) -> Void)? = nil
+    ) throws -> FileItem {
         guard let first = sources.first else { throw FileOpError("Nothing to compress.") }
         let parent = PathUtils.parent(first)
         guard sources.allSatisfy({ PathUtils.parent($0) == parent }) else {
             throw FileOpError("Select items from a single folder to compress them.")
         }
+        let totalItems = max(countArchiveItems(in: sources), 1)
         let names = sources.map(PathUtils.basename)
         let outName = sources.count == 1 ? ((names[0] as NSString).deletingPathExtension + ".zip") : "Archive.zip"
         let out = uniquePath(in: destination, name: outName)
-        // "./" keeps a file called "-T" or "--unzip-command=…" from being read as an option.
-        let result = try ProcessRunner.run("/usr/bin/zip", ["-r", "-q", "-X", out] + names.map { "./" + $0 }, currentDirectory: parent)
+
+        progress?(OpProgress(op: .compress, done: 0, total: totalItems, name: ""))
+
+        final class CompressionProgressState: @unchecked Sendable {
+            var doneCount = 0
+            var lastUpdate = Date()
+        }
+        let state = CompressionProgressState()
+        let result: ProcessRunner.Output
+        do {
+            // "./" keeps a file called "-T" or "--unzip-command=…" from being read as an option.
+            result = try ProcessRunner.runStreaming(
+                "/usr/bin/zip",
+                ["-r", "-X", out] + names.map { "./" + $0 },
+                currentDirectory: parent,
+                handle: handle
+            ) { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("adding:") {
+                    state.doneCount += 1
+                    let rest = trimmed.dropFirst("adding:".count).trimmingCharacters(in: .whitespaces)
+                    let entryPath = rest.components(separatedBy: " ").first?.trimmingCharacters(in: CharacterSet(charactersIn: "./")) ?? rest
+                    let displayName = PathUtils.basename(entryPath)
+                    let nameToShow = displayName.isEmpty ? entryPath : displayName
+
+                    let now = Date()
+                    let count = state.doneCount
+                    if count == 1 || count == totalItems || now.timeIntervalSince(state.lastUpdate) >= 0.05 {
+                        state.lastUpdate = now
+                        progress?(OpProgress(op: .compress, done: min(count, totalItems), total: totalItems, name: nameToShow))
+                    }
+                }
+            }
+        } catch {
+            try? fm.removeItem(atPath: out)
+            throw error
+        }
+
+        if handle?.cancelled == true {
+            try? fm.removeItem(atPath: out)
+            throw FileOpError("Compression cancelled.")
+        }
+
         guard result.status == 0 else {
+            try? fm.removeItem(atPath: out)
             throw FileOpError(result.stderrText.isEmpty ? "Compression failed." : result.stderrText)
         }
+
+        progress?(OpProgress(op: .compress, done: totalItems, total: totalItems, name: ""))
         return try fileItem(at: out)
     }
 
