@@ -100,3 +100,142 @@ struct PropertiesSheet: View {
             ext: (info.name as NSString).pathExtension.lowercased(), isHidden: false, kind: info.kind)
     }
 }
+
+/// "Compress Items" dialog — select format (zip, tar.gz, 7z) and compression level (low, medium, compact, maximum).
+struct CompressionDialog: View {
+    @ObservedObject var model: ExplorerModel
+    let pending: PendingCompression
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var archiveName: String
+    @State private var selectedFormat: ArchiveFormat
+    @State private var selectedLevel: CompressionLevel
+    @FocusState private var isNameFocused: Bool
+
+    init(model: ExplorerModel, pending: PendingCompression) {
+        self.model = model
+        self.pending = pending
+        _archiveName = State(initialValue: pending.baseName)
+        _selectedFormat = State(initialValue: pending.format)
+        _selectedLevel = State(initialValue: pending.level)
+    }
+
+    private var fullFilename: String {
+        var base = archiveName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { base = "Archive" }
+        for ext in [".tar.gz", ".tgz", ".zip", ".7z", ".tar"] {
+            if base.lowercased().hasSuffix(ext) {
+                base = String(base.dropLast(ext.count))
+                break
+            }
+        }
+        if base.isEmpty { base = "Archive" }
+        return base + selectedFormat.extensionName
+    }
+
+    private var levelDescription: String {
+        switch selectedLevel {
+        case .low: return "Fastest speed, larger file size"
+        case .medium: return "Balanced speed and compression (recommended)"
+        case .compact: return "Higher compression ratio, slower speed"
+        case .maximum: return "Smallest file size, maximum compression"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "archivebox.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Compress Items")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("\(pending.sources.count) item\(pending.sources.count == 1 ? "" : "s") selected • \(Formatting.abbreviatingHome(pending.destination, home: model.homeDir))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Archive name")
+                    .font(.system(size: 12, weight: .medium))
+                HStack(spacing: 6) {
+                    TextField("Archive Name", text: $archiveName)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isNameFocused)
+                    Text(selectedFormat.extensionName)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .cornerRadius(4)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Format")
+                    .font(.system(size: 12, weight: .medium))
+                Picker("Format", selection: $selectedFormat) {
+                    ForEach(ArchiveFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Compression level")
+                    .font(.system(size: 12, weight: .medium))
+                Picker("Compression Level", selection: $selectedLevel) {
+                    ForEach(CompressionLevel.allCases) { level in
+                        Text(level.title).tag(level)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(levelDescription)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            HStack {
+                Button("Cancel") {
+                    model.pendingCompression = nil
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Compress") {
+                    let name = fullFilename
+                    let format = selectedFormat
+                    let level = selectedLevel
+                    model.pendingCompression = nil
+                    dismiss()
+                    model.startCompression(
+                        sources: pending.sources,
+                        destination: pending.destination,
+                        name: name,
+                        format: format,
+                        level: level
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+        .onAppear {
+            isNameFocused = true
+        }
+    }
+}

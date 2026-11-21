@@ -146,6 +146,57 @@ enum ConflictPolicy: String {
     case replace, skip, keepBoth
 }
 
+enum ArchiveFormat: String, CaseIterable, Identifiable, Codable {
+    case zip
+    case tarGz = "tar.gz"
+    case sevenZip = "7z"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .zip: return "ZIP"
+        case .tarGz: return "TAR.GZ"
+        case .sevenZip: return "7Z"
+        }
+    }
+
+    var extensionName: String {
+        switch self {
+        case .zip: return ".zip"
+        case .tarGz: return ".tar.gz"
+        case .sevenZip: return ".7z"
+        }
+    }
+}
+
+enum CompressionLevel: String, CaseIterable, Identifiable, Codable {
+    case low
+    case medium
+    case compact
+    case maximum
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .compact: return "Compact"
+        case .maximum: return "Maximum"
+        }
+    }
+}
+
+struct PendingCompression: Identifiable {
+    let id = UUID()
+    let sources: [String]
+    let destination: String
+    var baseName: String
+    var format: ArchiveFormat = .zip
+    var level: CompressionLevel = .medium
+}
+
 enum OpKind: String {
     case copy, move, download, compress, extract
 

@@ -73,6 +73,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
     private var searchTask: Task<Void, Never>?
 
     // MARK: Transient UI
+    @Published var pendingCompression: PendingCompression?
     @Published var pendingTransfer: PendingTransfer?
     @Published var propertiesTarget: PropertiesTarget?
     @Published private(set) var operation: OpProgress?
@@ -763,14 +764,52 @@ final class ExplorerModel: ObservableObject, Identifiable {
     func compressSelection() {
         let paths = Array(selection)
         guard !paths.isEmpty, !isHome else { return }
+        let first = paths[0]
+        let parent = PathUtils.parent(first)
+        guard paths.allSatisfy({ PathUtils.parent($0) == parent }) else {
+            flash("Select items from a single folder to compress them.")
+            return
+        }
+        let defaultBase: String
+        if paths.count == 1 {
+            let base = PathUtils.basename(first)
+            defaultBase = (base as NSString).deletingPathExtension
+        } else {
+            defaultBase = "Archive"
+        }
+        pendingCompression = PendingCompression(
+            sources: paths,
+            destination: currentPath,
+            baseName: defaultBase.isEmpty ? "Archive" : defaultBase,
+            format: .zip,
+            level: .medium
+        )
+    }
+
+    func startCompression(
+        sources: [String],
+        destination: String,
+        name: String,
+        format: ArchiveFormat,
+        level: CompressionLevel
+    ) {
+        guard !sources.isEmpty else { return }
         let handle = ProcessHandle()
         activeOperationHandle = handle
-        operation = OpProgress(op: .compress, done: 0, total: paths.count, name: "")
-        let fs = fs, dir = currentPath
+        operation = OpProgress(op: .compress, done: 0, total: sources.count, name: "")
+        let fs = fs
         let sink = progressSink()
         Task { [weak self] in
             let result = await self?.background({
-                try fs.compressZip(paths, into: dir, handle: handle, progress: sink)
+                try fs.compressArchive(
+                    sources,
+                    into: destination,
+                    archiveName: name,
+                    format: format,
+                    level: level,
+                    handle: handle,
+                    progress: sink
+                )
             })
             guard let self else { return }
             self.activeOperationHandle = nil
@@ -782,7 +821,7 @@ final class ExplorerModel: ObservableObject, Identifiable {
                     self.flash(error.message)
                 }
             case .success(let item):
-                self.pendingRenamePath = item.path
+                self.selection = [item.path]
             }
             self.refresh()
         }

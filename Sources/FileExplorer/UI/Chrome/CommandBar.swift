@@ -150,7 +150,7 @@ struct CommandBar: View {
             Button("Select none") { model.selectNone() }
             Button("Invert selection") { model.invertSelection() }
             Divider()
-            Button("Compress to ZIP") { model.compressSelection() }.disabled(!hasSelection)
+            Button("Compress…") { model.compressSelection() }.disabled(!hasSelection)
             Button("Extract all") { model.extractSelection() }.disabled(model.selectedItems.allSatisfy { $0.ext != "zip" })
             Divider()
             Button("Open in Terminal") { model.openTerminal() }.disabled(!inFolder)

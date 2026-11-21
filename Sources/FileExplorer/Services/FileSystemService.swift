@@ -401,6 +401,26 @@ struct FileSystemService: Sendable {
         handle: ProcessHandle? = nil,
         progress: (@Sendable (OpProgress) -> Void)? = nil
     ) throws -> FileItem {
+        try compressArchive(
+            sources,
+            into: destination,
+            format: .zip,
+            level: .medium,
+            handle: handle,
+            progress: progress
+        )
+    }
+
+    /// Compresses the items (which must share a parent folder) into `destination` using the chosen format and compression level.
+    func compressArchive(
+        _ sources: [String],
+        into destination: String,
+        archiveName: String? = nil,
+        format: ArchiveFormat = .zip,
+        level: CompressionLevel = .medium,
+        handle: ProcessHandle? = nil,
+        progress: (@Sendable (OpProgress) -> Void)? = nil
+    ) throws -> FileItem {
         guard let first = sources.first else { throw FileOpError("Nothing to compress.") }
         let parent = PathUtils.parent(first)
         guard sources.allSatisfy({ PathUtils.parent($0) == parent }) else {
@@ -408,7 +428,18 @@ struct FileSystemService: Sendable {
         }
         let totalItems = max(countArchiveItems(in: sources), 1)
         let names = sources.map(PathUtils.basename)
-        let outName = sources.count == 1 ? ((names[0] as NSString).deletingPathExtension + ".zip") : "Archive.zip"
+
+        let defaultStem = sources.count == 1 ? ((names[0] as NSString).deletingPathExtension) : "Archive"
+        var stem = archiveName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if stem.isEmpty { stem = defaultStem.isEmpty ? "Archive" : defaultStem }
+        for ext in [".tar.gz", ".tgz", ".zip", ".7z", ".tar"] {
+            if stem.lowercased().hasSuffix(ext) {
+                stem = String(stem.dropLast(ext.count))
+                break
+            }
+        }
+        if stem.isEmpty { stem = "Archive" }
+        let outName = stem + format.extensionName
         let out = uniquePath(in: destination, name: outName)
 
         progress?(OpProgress(op: .compress, done: 0, total: totalItems, name: ""))
@@ -418,20 +449,48 @@ struct FileSystemService: Sendable {
             var lastUpdate = Date()
         }
         let state = CompressionProgressState()
+
+        let binary: String
+        let args: [String]
+        let levelNum: Int
+        switch level {
+        case .low: levelNum = 1
+        case .medium: levelNum = (format == .sevenZip ? 5 : 6)
+        case .compact: levelNum = (format == .sevenZip ? 7 : 8)
+        case .maximum: levelNum = 9
+        }
+
+        switch format {
+        case .zip:
+            binary = "/usr/bin/zip"
+            args = ["-r", "-X", "-\(levelNum)", out] + names.map { "./" + $0 }
+        case .tarGz:
+            binary = "/usr/bin/tar"
+            args = ["-czvf", out, "--options", "compression-level=\(levelNum)", "--"] + names
+        case .sevenZip:
+            binary = "/usr/bin/tar"
+            args = ["--format=7zip", "-cvf", out, "--options", "compression-level=\(levelNum)", "--"] + names
+        }
+
         let result: ProcessRunner.Output
         do {
-            // "./" keeps a file called "-T" or "--unzip-command=…" from being read as an option.
             result = try ProcessRunner.runStreaming(
-                "/usr/bin/zip",
-                ["-r", "-X", out] + names.map { "./" + $0 },
+                binary,
+                args,
                 currentDirectory: parent,
                 handle: handle
             ) { line in
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                var entryPath: String?
                 if trimmed.hasPrefix("adding:") {
-                    state.doneCount += 1
                     let rest = trimmed.dropFirst("adding:".count).trimmingCharacters(in: .whitespaces)
-                    let entryPath = rest.components(separatedBy: " ").first?.trimmingCharacters(in: CharacterSet(charactersIn: "./")) ?? rest
+                    entryPath = rest.components(separatedBy: " ").first?.trimmingCharacters(in: CharacterSet(charactersIn: "./")) ?? rest
+                } else if trimmed.hasPrefix("a ") {
+                    entryPath = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                }
+
+                if let entryPath, !entryPath.isEmpty {
+                    state.doneCount += 1
                     let displayName = PathUtils.basename(entryPath)
                     let nameToShow = displayName.isEmpty ? entryPath : displayName
 

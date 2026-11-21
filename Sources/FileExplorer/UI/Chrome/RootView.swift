@@ -33,6 +33,7 @@ struct RootView: View {
         .background(WindowAccessor { window in configure(window) })
         .overlay(alignment: .bottomTrailing) { overlays.padding(16) }
         .sheet(item: $model.pendingTransfer) { ConflictSheet(model: model, transfer: $0) }
+        .sheet(item: $model.pendingCompression) { CompressionDialog(model: model, pending: $0) }
         .sheet(item: $model.propertiesTarget) { PropertiesSheet(model: model, path: $0.id) }
         .focusedSceneObject(model)
         .onAppear { model.start() }

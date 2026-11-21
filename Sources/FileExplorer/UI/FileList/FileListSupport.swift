@@ -264,7 +264,7 @@ struct ContextMenuBuilder {
         menu.addItem(ClosureMenuItem("Open with…", symbol: "app.badge", enabled: single && !isFolder) { model.openWithSelection() })
         menu.addItem(.separator())
 
-        menu.addItem(ClosureMenuItem(isZip ? "Compress to ZIP file" : "Compress to ZIP file", symbol: "doc.zipper") { model.compressSelection() })
+        menu.addItem(ClosureMenuItem("Compress…", symbol: "doc.zipper") { model.compressSelection() })
         if isZip { menu.addItem(ClosureMenuItem("Extract All…", symbol: "arrow.up.bin") { model.extractSelection() }) }
 
         if isFolder {
